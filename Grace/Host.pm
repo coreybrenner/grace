@@ -1,8 +1,8 @@
-use strict;
-use warnings;
-
 # Host platform recognition.
 package Grace::Host;
+
+use strict;
+use warnings;
 
 use POSIX qw{uname};
 use Carp;
@@ -20,7 +20,6 @@ if ($_sysname =~ m{^(?:mswin32|cygwin)$}o) {
     carp(__PACKAGE__.": Unknown host sysname: '$_sysname'");
 }
 
-#===============================================================================
 if ($_sysarch =~ m{^(?:x86(?:.32)?|ia32|x32|(?:cex|i\d?|80\d?)86)$}o) {
     $_sysarch = 'x86_32';
 } elsif ($_sysarch =~ m{^(?:x86.64|x64|amd64)$}o) {

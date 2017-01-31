@@ -1,0 +1,719 @@
+>> Look for 'Graceconf' in path '/'
+>> Inspect file '/Graceconf'
+>> Look for 'Graceproj' in path '/'
+>> Inspect file '/Graceproj'
+>> Look for 'Graceconf' in path '/Users'
+>> Inspect file '/Users/Graceconf'
+>> Look for 'Graceproj' in path '/Users'
+>> Inspect file '/Users/Graceproj'
+>> Look for 'Graceconf' in path '/Users/corey'
+>> Inspect file '/Users/corey/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey'
+>> Inspect file '/Users/corey/Graceproj'
+>> Look for 'Graceconf' in path '/Users/corey/tools'
+>> Inspect file '/Users/corey/tools/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools'
+>> Inspect file '/Users/corey/tools/Graceproj'
+>> Got an extant 'Graceproj' file '/Users/corey/tools/Graceproj'
+>> Look for 'Graceconf' in path '/Users/corey/tools/lib'
+>> Inspect file '/Users/corey/tools/lib/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools/lib'
+>> Look for 'Graceconf' in path '/Users/corey/tools/lib/grace'
+>> Inspect file '/Users/corey/tools/lib/grace/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools/lib/grace'
+>> Look for 'Graceconf' in path '/Users/corey/tools/lib/grace/perl5'
+>> Inspect file '/Users/corey/tools/lib/grace/perl5/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools/lib/grace/perl5'
+>> Look for 'Graceconf' in path '/Users/corey/tools/lib/grace/perl5/Grace'
+>> Inspect file '/Users/corey/tools/lib/grace/perl5/Grace/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools/lib/grace/perl5/Grace'
+>> Look for 'Graceconf' in path '/Users/corey/tools/lib/grace/perl5/Grace/Config'
+>> Inspect file '/Users/corey/tools/lib/grace/perl5/Grace/Config/Graceconf'
+>> Look for 'Graceproj' in path '/Users/corey/tools/lib/grace/perl5/Grace/Config'
+EXISTS_BELOW(root='/Users/corey/tools', list=[/Users/corey/tools/lib/grace/perl5/Grace/Config])
+>> root: '/Users/corey/tools'
+>> path: '/Users/corey/tools/lib/grace/perl5/Grace/Config'
+>> look: '/Users/corey/tools/lib/grace/perl5/Grace/Config'
+>> look '/Users/corey/tools/lib/grace/perl5/Grace/Config' exists
+>> look '/Users/corey/tools/lib/grace/perl5/Grace/Config' below '/Users/corey/tools'; tail: 'lib/grace/perl5/Grace/Config'
+>> return
+$VAR1 = [
+          'result',
+          {
+            '/Users/corey/tools/lib/grace/perl5/Grace/Config' => 'lib/grace/perl5/Grace/Config'
+          }
+        ];
+_RESOLVE_CONFIG()
+>> Configure for SRCROOT '/Users/corey/tools'
+>> Inspect 'systems.cfg'
+>> FILE: '/Users/corey/tools/systems.cfg'
+>> LIST: [/Users/corey/tools/systems.cfg]
+>> CTOR: Grace::Config::Systems
+systems.cfg
+_merge_hash(into=HASH(0x7fd4de1dfaf8), more=HASH(0x7fd4df9006d0))
+>> KEY 'winphone8', NEW:$VAR1 = [
+          'winphone8_arm-32',
+          'winphone8_x86-32'
+        ];
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winrt_arm-32', NEW:$VAR1 = {
+          'inherit' => 'winrt',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'arm'
+                                           }
+                       },
+          'sysarch' => 'arm-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'wince_cp7arm-32', NEW:$VAR1 = {
+          'sysname' => 'wince',
+          'sysarch' => 'cp7arm-32',
+          'toolset' => {
+                         'Wince700' => {
+                                         'toolcpu' => 'arm'
+                                       }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_arm64-v8a', NEW:$VAR1 = {
+          'inherit' => 'android_armeabi-v8a',
+          'sysarch' => 'arm64-v8a'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_x86-32', NEW:$VAR1 = {
+          'inherit' => 'ios',
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'i386'
+                                    }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'common', NEW:$VAR1 = {
+          'instrum' => 'common',
+          'toolset' => {
+                         'Common' => {}
+                       },
+          'sysname' => 'common'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'wince_cp7armv7-32', NEW:$VAR1 = {
+          'sysarch' => 'cp7armv7-32',
+          'toolset' => {
+                         'Wince700_ARMv7' => {}
+                       },
+          'sysname' => 'wince'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_armhf-32', NEW:$VAR1 = {
+          'toolset' => {
+                         'System' => {
+                                       'toolcpu' => 'armhf'
+                                     }
+                       },
+          'sysarch' => 'armhf-32',
+          'sysname' => 'linux'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'native', NEW:$VAR1 = 'mac_x86-64';
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winrt_x86-64', NEW:$VAR1 = {
+          'inherit' => 'winrt',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x64'
+                                           }
+                       },
+          'sysarch' => 'x86-64'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_x86-64', NEW:$VAR1 = {
+          'sysname' => 'android',
+          'sysarch' => 'x86-64',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'x86-64'
+                                      }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'win_x86-32', NEW:$VAR1 = {
+          'inherit' => 'win-base',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x86'
+                                           }
+                       },
+          'sysarch' => 'x86-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_mips-32EL', NEW:$VAR1 = {
+          'sysname' => 'linux',
+          'sysarch' => 'mips-32EL',
+          'toolset' => {
+                         'Custom' => {
+                                       'toolcpu' => 'mipsel',
+                                       'toolsys' => 'linux',
+                                       'toolset' => 'codesourcery-2011-09-90'
+                                     }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_armeabi', NEW:$VAR1 = {
+          'sysarch' => 'armeabi',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'armeabi'
+                                      }
+                       },
+          'sysname' => 'android'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'uwp', NEW:$VAR1 = {
+          'sysname' => 'uwp',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolsys' => 'uwp',
+                                             'release' => sub { "DUMMY" }
+                                           }
+                       },
+          'fatarch' => {
+                         'x86-64' => {
+                                       'inherit' => 'uwp_x86-64'
+                                     },
+                         'arm-32' => {
+                                       'inherit' => 'uwp_arm-32'
+                                     },
+                         'x86-32' => {
+                                       'inherit' => 'uwp_x86-32'
+                                     }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'wince_sh-32', NEW:$VAR1 = {
+          'sysname' => 'wince',
+          'sysarch' => 'sh-32',
+          'toolset' => {
+                         'Wince600' => {
+                                         'toolcpu' => 'sh'
+                                       }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'default', NEW:$VAR1 = 'mac_x86-64';
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_x86-64', NEW:$VAR1 = {
+          'toolset' => {
+                         'System' => {
+                                       'toolcpu' => 'amd64'
+                                     }
+                       },
+          'sysarch' => 'x86-64',
+          'sysname' => 'linux'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'wince_arm-32', NEW:$VAR1 = {
+          'sysarch' => 'arm-32',
+          'toolset' => {
+                         'Wince600' => {
+                                         'toolcpu' => 'arm'
+                                       }
+                       },
+          'sysname' => 'wince'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_arm-32', NEW:$VAR1 = {
+          'toolset' => {
+                         'Custom' => {
+                                       'toolset' => 'arm-2010-09',
+                                       'toolsys' => 'linux',
+                                       'toolcpu' => 'arm'
+                                     }
+                       },
+          'sysarch' => 'arm-32',
+          'sysname' => 'linux'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_armv7-32', NEW:$VAR1 = {
+          'inherit' => 'ios',
+          'sysarch' => 'armv7-32',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'armv7'
+                                    }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_mips-32', NEW:$VAR1 = {
+          'sysarch' => 'mips-32',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'mips'
+                                      }
+                       },
+          'sysname' => 'android'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winphone8_arm-32', NEW:$VAR1 = {
+          'inherit' => 'winphone8-base',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'arm'
+                                           }
+                       },
+          'sysarch' => 'arm-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'qnx_x86-32', NEW:$VAR1 = {
+          'inherit' => 'qnx-base',
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'Custom' => {
+                                       'toolcpu' => 'x86'
+                                     }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'mac_x86-32', NEW:$VAR1 = {
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'i386'
+                                    }
+                       },
+          'inherit' => 'mac-base'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'uwp_x86-32', NEW:$VAR1 = {
+          'inherit' => 'uwp',
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x86'
+                                           }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios', NEW:$VAR1 = {
+          'sysname' => 'ios',
+          'fatarch' => {
+                         'amd64' => {
+                                      'inherit' => 'ios_x86-64'
+                                    },
+                         'armv6' => {
+                                      'inherit' => 'ios_armv6-32'
+                                    },
+                         'arm64' => {
+                                      'inherit' => 'ios_arm64'
+                                    },
+                         'i386' => {
+                                     'inherit' => 'ios_x86-32'
+                                   },
+                         'armv7' => {
+                                      'inherit' => 'ios_armv7-32'
+                                    },
+                         'armv7s' => {
+                                       'inherit' => 'ios_armv7s-32'
+                                     }
+                       },
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'auto',
+                                      'toolsys' => 'iphoneos'
+                                    }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_arm64', NEW:$VAR1 = {
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'arm64'
+                                    }
+                       },
+          'sysarch' => 'arm64',
+          'inherit' => 'ios'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'freebsd_x86-64', NEW:$VAR1 = {
+          'toolset' => {
+                         'System' => {
+                                       'toolcpu' => 'amd64'
+                                     }
+                       },
+          'sysarch' => 'x86-64',
+          'sysname' => 'freebsd'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'win-base', NEW:$VAR1 = {
+          'sysname' => 'win',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => sub { "DUMMY" },
+                                             'toolsdk' => sub { "DUMMY" },
+                                             'release' => sub { "DUMMY" },
+                                             'toolsys' => 'windows'
+                                           }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'mac_x86-64', NEW:$VAR1 = {
+          'inherit' => 'mac-base',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'x86_64'
+                                    }
+                       },
+          'sysarch' => 'x86-64'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_x86-32', NEW:$VAR1 = {
+          'sysname' => 'android',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'x86'
+                                      }
+                       },
+          'sysarch' => 'x86-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android', NEW:$VAR1 = [
+          'android_armeabi',
+          'android_armeabi-v7a',
+          'android_arm64-v8a',
+          'android_x86-32',
+          'android_x86-64'
+        ];
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_armeabi-v8a', NEW:$VAR1 = {
+          'sysname' => 'android',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'armeabi-v8a'
+                                      }
+                       },
+          'sysarch' => 'armeabi-v8a'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winphone8_x86-32', NEW:$VAR1 = {
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x86'
+                                           }
+                       },
+          'inherit' => 'winphone8-base'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_armv7s-32', NEW:$VAR1 = {
+          'inherit' => 'ios',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'armv7s'
+                                    }
+                       },
+          'sysarch' => 'armv7s-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winphone8-base', NEW:$VAR1 = {
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'release' => '2012',
+                                             'toolsys' => 'winphone8'
+                                           }
+                       },
+          'sysname' => 'winphone8'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_x86-64', NEW:$VAR1 = {
+          'inherit' => 'ios',
+          'sysarch' => 'x86-64',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'amd64'
+                                    }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'ios_armv6-32', NEW:$VAR1 = {
+          'sysarch' => 'armv6-32',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'armv6'
+                                    }
+                       },
+          'inherit' => 'ios'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'wince_cp7sh-32', NEW:$VAR1 = {
+          'toolset' => {
+                         'Wince700' => {
+                                         'toolcpu' => 'sh'
+                                       }
+                       },
+          'sysarch' => 'cp7sh-32',
+          'sysname' => 'wince'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'win_x86-64', NEW:$VAR1 = {
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x64'
+                                           }
+                       },
+          'sysarch' => 'x86-64',
+          'inherit' => 'win-base'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'qnx_armv7-32', NEW:$VAR1 = {
+          'inherit' => 'qnx-base',
+          'sysarch' => 'armv7-32',
+          'toolset' => {
+                         'Custom' => {
+                                       'toolcpu' => 'armv7'
+                                     }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'qnx-base', NEW:$VAR1 = {
+          'toolset' => {
+                         'Custom' => {
+                                       'toolset' => 'qnx650',
+                                       'toolsys' => 'nto'
+                                     }
+                       },
+          'sysname' => 'qnx'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_armeabi-v7a', NEW:$VAR1 = {
+          'sysarch' => 'armeabi-v7a',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'armeabi-v7a'
+                                      }
+                       },
+          'sysname' => 'android'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'uwp_x86-64', NEW:$VAR1 = {
+          'inherit' => 'uwp',
+          'sysarch' => 'x86-64',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x64'
+                                           }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winrt', NEW:$VAR1 = {
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolsys' => 'winrt',
+                                             'release' => '2013'
+                                           }
+                       },
+          'fatarch' => {
+                         'x86-64' => {
+                                       'inherit' => 'winrt_x86-64'
+                                     },
+                         'arm-32' => {
+                                       'inherit' => 'winrt_arm-32'
+                                     },
+                         'x86-32' => {
+                                       'inherit' => 'winrt_x86-32'
+                                     }
+                       },
+          'sysname' => 'winrt'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'mac', NEW:$VAR1 = [
+          'mac_x86-32',
+          'mac_x86-64'
+        ];
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_x86-32', NEW:$VAR1 = {
+          'sysarch' => 'x86-32',
+          'toolset' => {
+                         'System' => {
+                                       'toolcpu' => 'i686'
+                                     }
+                       },
+          'sysname' => 'linux'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'android_mips-64', NEW:$VAR1 = {
+          'sysname' => 'android',
+          'sysarch' => 'mips-64',
+          'toolset' => {
+                         'Android' => {
+                                        'toolcpu' => 'mips64'
+                                      }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'qnx', NEW:$VAR1 = [
+          'qnx_armv7-32',
+          'qnx_x86-32'
+        ];
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'winrt_x86-32', NEW:$VAR1 = {
+          'inherit' => 'winrt',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'x86'
+                                           }
+                       },
+          'sysarch' => 'x86-32'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'uwp_arm-32', NEW:$VAR1 = {
+          'sysarch' => 'arm-32',
+          'toolset' => {
+                         'VisualStudio' => {
+                                             'toolcpu' => 'arm'
+                                           }
+                       },
+          'inherit' => 'uwp'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'linux_armhfv8-64', NEW:$VAR1 = {
+          'sysname' => 'linux',
+          'toolset' => {
+                         'System' => {
+                                       'toolcpu' => 'armv8'
+                                     }
+                       },
+          'sysarch' => 'armhfv8-64'
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+>> KEY 'mac-base', NEW:$VAR1 = {
+          'sysname' => 'mac',
+          'toolset' => {
+                         'Xcode' => {
+                                      'toolcpu' => 'auto',
+                                      'toolsys' => 'macosx'
+                                    }
+                       }
+        };
+
+>> old: <undef>
+>> old --> UNDEF or CODE
+Not a HASH reference at
+	/Users/corey/tools/lib/grace/perl5/Grace/Config/Systems.pm line 385 (#1)
+    (F) Perl was trying to evaluate a reference to a hash value, but found a
+    reference to something else instead.  You can use the ref() function to
+    find out what kind of ref it really was.  See perlref.
+    
+Uncaught exception from user code:
+	Not a HASH reference at /Users/corey/tools/lib/grace/perl5/Grace/Config/Systems.pm line 385.
+	Grace::Config::Systems::new('Grace::Config::Systems', '/Users/corey/tools/systems.cfg') called at /Users/corey/tools/lib/grace/grace.pl line 715
+	main::_resolve_config('dfl', 'systems.cfg', 'key', 'systems-config', 'fil', 'systems_config_file', 'tbl', 'systems_config_dict', 'msg', ...) called at /Users/corey/tools/lib/grace/grace.pl line 726
+	main::resolve_systems_config() called at /Users/corey/tools/lib/grace/grace.pl line 932
+	main::parse_options() called at /Users/corey/tools/lib/grace/grace.pl line 976
