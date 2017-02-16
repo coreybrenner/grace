@@ -21,12 +21,9 @@ sub find_highest ($@) {
         $dir = File::Spec->catpath($vol, $dir, '');
 
         foreach (@list) {
-print(STDERR ">> Look for '$_' in path '$dir'\n");
             next if ($res{$_});
             $fil = File::Spec->catfile($dir, $_);
-print(STDERR ">> Inspect file '$fil'\n");
             next if (! -e $fil);
-print(STDERR ">> Got an extant '$_' file '$fil'\n");
             $res{$_} = $fil;
         }
     }
@@ -36,7 +33,6 @@ print(STDERR ">> Got an extant '$_' file '$fil'\n");
 
 sub _abspath ($@) {
     my ($root, @list) = @_;
-print(STDERR "_ABSPATH(root='$root', list=[@list])\n");
 
     my %rslt;
     my @segs;
@@ -102,13 +98,11 @@ print(STDERR "_ABSPATH(root='$root', list=[@list])\n");
 }
 
 sub abspath (@) {
-print(STDERR "ABSPATH(list=[@_])\n");
     return _abspath(Cwd::cwd(), @_);
 }
 
 sub _realpath ($@) {
     my ($root, @list) = @_;
-print(STDERR "_REALPATH(root='$root', list=[@list])\n");
     my $path;
     my %rslt;
 
@@ -126,13 +120,11 @@ print(STDERR "_REALPATH(root='$root', list=[@list])\n");
 }
 
 sub realpath (@) {
-print(STDERR "REALPATH(list=[@_])\n");
     return _realpath(Cwd::cwd(), @_);
 }
 
 sub exists_below ($@) {
     my ($root, @list) = @_;
-print(STDERR "EXISTS_BELOW(root='$root', list=[@list])\n");
 
     my ($path, $look, %rslt);
 
@@ -142,24 +134,17 @@ print(STDERR "EXISTS_BELOW(root='$root', list=[@list])\n");
         $root = File::Spec->catdir(Cwd::cwd(), $root);
     }
     $root = Cwd::realpath($root);
-print(STDERR ">> root: '$root'\n");
 
     foreach $path (@list) {
-print(STDERR ">> path: '$path'\n");
         $look = $path;
         if (! File::Spec->file_name_is_absolute($look)) {
             $look = File::Spec->catdir($root, $look);
         }
-print(STDERR ">> look: '$look'\n");
         next if (! defined($look = Cwd::realpath($look)));
-print(STDERR ">> look '$look' exists\n");
         if (("$look/" =~ m{^$root/+(.*[^/])?/*$}) && -e $look) {
-print(STDERR ">> look '$look' below '$root'; tail: ".(defined($1)?"'$1'":'<undef>')."\n");
             $rslt{$path} = $1;
         }
     }
-print(STDERR ">> return\n");
-print(STDERR Dumper([ 'result', \%rslt ]));
     return %rslt;
 }
 

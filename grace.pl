@@ -9,6 +9,7 @@ use Grace::Utility           qw{unique};
 use Grace::Paths;
 use Grace::Config::Systems;
 #use Grace::Config::Toolset;
+#use Grace::Config::Environ;
 
 my  $program        = (File::Spec->splitpath($0))[2];
 my  $version        = '0.0';
@@ -22,6 +23,7 @@ my  $systems_config = 'systems.cfg';
 my  $sysconf        = 'default';
 my  $toolset_config = 'toolset.cfg';
 my  $toolset        = 'common';
+my  $environ_config = 'environ.cfg';
 
 my  %options;
 my  %globals;
@@ -34,6 +36,15 @@ my  $numjobs = 1;
 my  $runerrs = 0;
 my  $loadavg = undef;
 my  $nicelev = undef;
+my  $nullenv = 0;
+my  $dobuild = 1;
+my  $dontdie = 0;
+my  $list_toolsets = 0;
+my  $show_toolsets = 0;
+my  $list_projects = 0;
+my  $show_projects = 0;
+my  $show_environ  = 0;
+my  $show_toolenv  = 0;
 
 #
 # grace.pl \
@@ -53,8 +64,10 @@ sub _opt_vers ($$$$);
 sub _opt_jobs ($$$$);
 sub _opt_load ($$$$);
 sub _opt_nice ($$$$);
+sub _opt_flag ($$$$);
 sub _opt_list ($$$$);
 sub _opt_dict ($$$$);
+sub _opt_vars ($$$$);
 
 my %aliases = (
     src      => 'srcroot',
@@ -164,7 +177,7 @@ my @options = (
     }, {
         long        => 'setenv',
         type        => OPT_REQUIRED,
-        func        => \&_opt_dict,
+        func        => \&_opt_vars,
         args        => '[PROJ/]NAME=DATA',
         help        => 'Set an environment (not build) variable',
     }, {
@@ -179,6 +192,12 @@ my @options = (
         func        => \&_opt_list,
         args        => '[PROJ=]FILE',
         help        => 'Use target platform configuration file FILE',
+    }, {
+        long        => 'empty-environ',
+        type        => OPT_ATTACHED,
+        func        => \&_opt_flag,
+        args        => 'PROJ...',
+        help        => 'Configure against an empty environment',
     }, {
         long        => 'environ-config',
         type        => OPT_REQUIRED,
@@ -377,6 +396,7 @@ sub _opt_flag ($$$$) {
     my ($opt, $aop, $arg, $vec) = @_;
 
     my ($not, $nam) = ($opt =~ m{^(?:--?)?(no-)?(.+)$}o);
+    $not = ($not ? 1 : 0);
 
     if ($aliases{$nam}) {
         $nam = $aliases{$nam};
@@ -391,7 +411,7 @@ sub _opt_flag ($$$$) {
         push(@{$options{$_}{$nam}}, [ '=', ! $not ]);
     }
 
-    return ($aop ? 0 : 1);
+    return ($aop ? 0 : (defined($arg) ? 1 : 0));
 }
 
 sub _opt_list ($$$$) {
@@ -434,8 +454,8 @@ sub _opt_list ($$$$) {
     return ($aop ? 0 : 1);
 }
 
-sub _opt_dict ($$$$) {
-    my ($opt, $aop, $arg, $vec) = @_;
+sub __opt_dist (@) {
+    my ($opt, $aop, $arg, $vec, $fun) = @_;
 
     my ($nam) = ($opt =~ m{^(?:--?)?(.+)$}o);
     if ($aliases{$nam}) {
@@ -465,7 +485,7 @@ sub _opt_dict ($$$$) {
         $key = '';
     }
 
-    my @val = Grace::Options::split($val || '');
+    my @val = &{$fun}($val || '');
     my $tbl;
 
     $tbl = ($options{$cfg} || ($options{$cfg} = {}));
@@ -479,6 +499,20 @@ sub _opt_dict ($$$$) {
     }
 
     return ($aop ? 0 : 1);
+}
+
+sub _opt_dict ($$$$) {
+    sub _split_settings ($) {
+        return Grace::Options::split($_[0]);
+    }
+    return __opt_dist(@_, \&_split_settings);
+}
+
+sub _opt_vars ($$$$) {
+    sub _split_variable ($) {
+        return ( $_[0] );
+    }
+    return __opt_dist(@_, \&_split_variable);
 }
 
 sub resolve_srcroot () {
@@ -518,7 +552,7 @@ sub resolve_srcroot () {
 
     $configs{''}{srcroot} = \@top;
 
-    foreach $cfg (keys(%options)) {
+    foreach $cfg (grep { $_ } keys(%options)) {
         if (! defined($dir = $options{$cfg}{srcroot})) {
             $configs{$cfg}{srcroot} = $configs{''}{srcroot};
         } else {
@@ -646,7 +680,6 @@ sub resolve_pubroot () {
 }
 
 sub _resolve_config (%) {
-print(STDERR "_RESOLVE_CONFIG()\n");
     my %setup = @_;
 
     my (@def, $def);
@@ -690,9 +723,7 @@ print(STDERR "_RESOLVE_CONFIG()\n");
         }
 
         foreach $top (@{$configs{$cfg}{srcroot}}) {
-print(STDERR ">> Configure for SRCROOT '$top'\n");
             foreach $fil (@fil) {
-print(STDERR ">> Inspect '$fil'\n");
                 if (! File::Spec->file_name_is_absolute($fil)) {
                     # This happens when no --systems-config=... is given,
                     # and the default has fallen through.  Look for a
@@ -701,19 +732,14 @@ print(STDERR ">> Inspect '$fil'\n");
                     $fil = File::Spec->catdir($top, $fil);
                     if (! -f $fil || ! -r $fil) {
                         _error("$setup{msg} '$fil': $!");
-print(STDERR ">> ERROR: $errlist[-1]\n");
                         next;
                     }
                     $fil = Cwd::realpath($fil);
-print(STDERR ">> FILE: ".(defined($fil)?"'$fil'":'<undef>')."\n");
                 }
                 push(@{$configs{$cfg}{$setup{fil}}{$top}}, $fil);
-print(STDERR ">> LIST: [@{$configs{$cfg}{$setup{fil}}{$top}}]\n");
             }
 
-print(STDERR ">> CTOR: $setup{typ}\n");
             my $sys = "$setup{typ}"->new(@{$configs{$cfg}{$setup{fil}}{$top}});
-print(STDERR ">> CONF: ".(defined($sys)?$sys:'<undef>')."\n");
             _warn($sys->warnings());
             if (! _error($sys->errors())) {
                 $configs{$cfg}{$setup{tbl}}{$top} = $sys;
@@ -746,13 +772,13 @@ sub resolve_sysconf () {
     }
 
     foreach $cfg (keys(%configs)) {
+        my %sys = ();
         if (defined($sys = $options{$cfg}{sysconf})) {
             @sys = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$sys});
         } else {
             @sys = @def;
         }
 
-        %sys = ();
         $sys = $configs{$cfg}{systems_config_dict};
         foreach (@sys) {
             while (($top, $tbl) = each(%{$sys})) {
@@ -868,10 +894,139 @@ sub resolve_toolset () {
     }
 }
 
-sub resolve_environ () {
+sub resolve_environ_config () {
+    _resolve_config (
+        dfl => $environ_config,
+        key => 'environ-config',
+        fil => 'environ_config_file',
+        tbl => 'environ_config_dict',
+        msg => 'Environment config file',
+        typ => 'Grace::Config::Environ',
+    );
+}
+
+sub _resolve_cmdflg (%) {
+    my %setup = @_;
+
+    my (@key, $key, $var, $dfl, $cfg, $val);
+
+    $configs{''}{$setup{var}} = $setup{dfl};
+
+    @key = ((ref($setup{key}) && (ref($setup{key}) eq 'ARRAY'))
+            ? @{$setup{key}}
+            : ( $setup{key} ));
+
+    foreach $key (@key) {
+        $val = ($key !~ m{^no-}o);
+        if (defined($options{''}{$key})) {
+            $configs{''}{$setup{var}} = $val;
+        }
+    }
+
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        foreach $key (@key) {
+            # Stow default value, ascertained above.
+            $configs{$cfg}{$setup{var}} = $configs{''}{$setup{var}};
+
+            # Set true or set false?
+            $val = ($key !~ m{^no-}o);
+
+            # If set in a named configuration, record that value.
+            if (defined($options{$cfg}{$key})) {
+                $configs{$cfg}{$setup{var}} = $val;
+            }
+        }
+    }
 }
 
 sub resolve_flagset () {
+    _resolve_cmdflg(
+        key => 'empty-environ',
+        var => 'nullenv',
+        dfl => $nullenv,
+    );
+    _resolve_cmdflg(
+        key => [ 'build', 'no-build' ],
+        var => 'dobuild',
+        dfl => $dobuild,
+    );
+    _resolve_cmdflg(
+        key => [ 'keep-going', 'no-keep-going' ],
+        var => 'dontdie',
+        dfl => $dontdie,
+    );
+    _resolve_cmdflg(
+        key => 'list-projects',
+        var => 'list_projects',
+        dfl => $list_projects,
+    );
+    _resolve_cmdflg(
+        key => 'show-projects',
+        var => 'show_projects',
+        dfl => $show_projects,
+    );
+    _resolve_cmdflg(
+        key => 'show-environ',
+        var => 'show_environ',
+        dfl => $show_environ,
+    );
+    _resolve_cmdflg(
+        key => 'show-toolenv',
+        var => 'show_toolenv',
+        dfl => $show_toolenv,
+    );
+    _resolve_cmdflg(
+        key => 'list-toolsets',
+        var => 'list_toolsets',
+        dfl => $list_toolsets,
+    );
+    _resolve_cmdflg(
+        key => 'show-toolsets',
+        var => 'show_toolsets',
+        dfl => $show_toolsets,
+    );
+}
+
+sub resolve_environ () {
+    # Start out with an empty environment.  If someone hasn't said
+    # "start all builds with an empty environment" (--empty-environ),
+    # take a snapshot of the environment we were given.
+    my %env;
+    if (! $configs{''}{nullenv}) {
+        %env = %ENV;
+    }
+
+    # Set variables in the base environment as specified on the command line.
+    # --setenv var=val
+    %env = ( %env, %{ ($options{''}{setenv} || ()) } );
+
+    # Now, march through the established build configs applying settings.
+    foreach my $cfg (keys(%configs)) {
+        # Start out with an empty environment.  If a named configuration
+        # has not set --empty-environ, inherit the global environment.
+        my %sub;
+        if (($cfg eq '') || ! $configs{$cfg}{nullenv}) {
+            %sub = %env;
+        }
+
+        # Set variables in the configuration's environment as specified
+        # on the command line.  We don't do this for the global config
+        # in this loop, because it's already been done.
+        if ($cfg ne '') {
+            # --setenv config/var=val
+            %sub = ( %sub, %{ ($options{$cfg}{setenv} || ()) } );
+        }
+
+        # Stow the resolved environment for each configuration.  These
+        # are not the final environment settings used for running programs
+        # for this configuration, but provide the base environment for
+        # the --environ-config=... settings to scribble upon.  Those
+        # settings are ActiveConfig, and so may not be completely evaluated
+        # until after fork() (or the Win32 platform equivalent).  This makes
+        # it necessary to ask the child spawner to feed back the final
+        # environment used to run the tool, for auditing.
+        $configs{$cfg}{environ} = \%sub;
+    }
 }
 
 sub resolve_targets () {
@@ -941,8 +1096,9 @@ print(STDERR "resolve_sysconf()\n");
 #    resolve_toolset_config();
 #print(STDERR "resolve_toolset()\n");
 #    resolve_toolset();
-    resolve_environ();
+#    resolve_environ_config();
     resolve_flagset();
+    resolve_environ();
     resolve_product();
 print(STDERR "resolve_lookups()\n");
     resolve_lookups();
