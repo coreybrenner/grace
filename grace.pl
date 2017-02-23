@@ -11,7 +11,7 @@ use File::Spec;
 use Data::Dumper;
 
 use Grace::Options           qw{:OPT_};
-use Grace::Utility           qw{unique};
+use Grace::Utility           qw{unique printdef};
 use Grace::Paths;
 use Grace::Config::Systems;
 #use Grace::Config::Toolset;
@@ -36,6 +36,10 @@ my  $environ_config = 'environ.cfg';
 
 # Basic default variant set.  Customized in variant.cfg for complex builds.
 my  %variant = (
+    overlay => {
+        strict  => {
+        },
+    },
     variant => {
         # Keys here describe variant dimensions.
         sysconf => {
@@ -317,6 +321,12 @@ my @options = (
         func        => \&_opt_list,
         args        => '[PROJ/]NAME=PROJ...',
         help        => 'Cluster projects together in search order',
+    }, {
+        long        => 'overlay',
+        type        => OPT_REQUIRED,
+        func        => \&_opt_list,
+        args        => '[PROJ+=]NAME...',
+        help        => 'Apply configuration overlays',
     },
 );
 
@@ -332,11 +342,6 @@ sub _error (@) {
 sub _warn (@) {
     push(@warning, @_);
     return scalar(@_);
-}
-
-sub _print ($) {
-    my $val = shift;
-    return (defined($val) ? '<undef>' : "'$val'");
 }
 
 sub _match ($$) {
@@ -459,18 +464,12 @@ sub _opt_list ($$$$) {
     }
 
     my ($cfg, $Aop, $val) =
-        ($arg =~ m{^(?:((?:(?>[^:?+=]+)|(?>[:?+](?!=)))+)?([:?+]?=))?(.*)$}o);
-
-    if ((defined($cfg) ? 1 : 0) ^ (defined($Aop) ? 1 : 0)) {
-        my $msg = sprintf("INTERNAL: C=%s, A=%s, V=%s",
-                          _print($cfg), _print($Aop), _print($val)
-                         );
-        _error($msg);
-        return 0;
-    }
+        ($arg =~ m{^(?:((?:(?>[^/:?+=]+)|(?>[:?+](?!=)))+)?(?:/+|([:?+]?=)))?(.*)$}o);
     if (! defined($cfg)) {
-        $Aop = '+=';
         $cfg = '';
+    }
+    if (! defined($Aop)) {
+        $Aop = '+=';
     }
 
     my @val = Grace::Options::split($val || '');
@@ -506,8 +505,8 @@ sub __opt_dist (@) {
 
     if ((defined($key) ? 1 : 0) ^ (defined($Aop) ? 1 : 0)) {
         my $msg = sprintf("INTERNAL: C=%s, K=%s, A=%s, V=%s",
-                          _print($cfg), _print($key),
-                          _print($Aop), _print($val)
+                          printdef($cfg), printdef($key),
+                          printdef($Aop), printdef($val)
                          );
         _error($msg);
         return 0;
@@ -520,7 +519,8 @@ sub __opt_dist (@) {
         $key = '';
     }
 
-    my @key = ( Grace::Options::split($key || '') );
+    my @key = Grace::Options::split($key);
+       @key = (@key ? @key : (''));
     my @val = &{$fun}(defined($val) ? $val : '');
     my $tbl;
 
@@ -910,17 +910,6 @@ sub resolve_toolset () {
     }
 }
 
-sub resolve_environ_config () {
-    _resolve_config (
-        dfl => $environ_config,
-        key => 'environ-config',
-        fil => 'environ_config_file',
-        tbl => 'environ_config_dict',
-        msg => 'Environment config file',
-        typ => 'Grace::Config::Environ',
-    );
-}
-
 sub _resolve_cmdflg (%) {
     my %setup = @_;
 
@@ -1003,6 +992,17 @@ sub resolve_flagset () {
     );
 }
 
+sub resolve_environ_config () {
+    _resolve_config (
+        dfl => $environ_config,
+        key => 'environ-config',
+        fil => 'environ_config_file',
+        tbl => 'environ_config_dict',
+        msg => 'Environment config file',
+        typ => 'Grace::Config::Environ',
+    );
+}
+
 sub resolve_environ () {
     # Start out with an empty environment.  If someone hasn't said
     # "start all builds with an empty environment" (--empty-environ),
@@ -1074,10 +1074,22 @@ sub resolve_targets () {
     }
 }
 
+sub resolve_variant_config () {
+    _resolve_config (
+        dfl => $variant_config,
+        key => 'variant-config',
+        fil => 'variant_config_file',
+        tbl => 'variant_config_dict',
+        msg => 'Variant config file',
+        typ => 'Grace::Config::Variant',
+    );
+}
+
 sub resolve_variant () {
     my (%cfg, $cfg);
     my (%dim, $dim);
     my (@var, $var);
+    my %tbl;
 
     # --variant var...
     @var = ();
@@ -1087,54 +1099,48 @@ sub resolve_variant () {
     $cfg{''} = \@var;
 
     # --variant dim=var...
-    while (($dim, $var) = each(%{$options{''}{variant}})) {
+    %tbl = %{ ($options{''}{variant} || {}) };
+    while (($dim, $var) = each(%tbl)) {
         next if (! $dim);
-        @var = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$var});
+        my @var = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$var});
         $dim{''}{$dim} = \@var;
     }
 
     # --variant cfg/var...
     foreach $cfg (grep { $_ } keys(%configs)) {
-        @var = ();
+        my @var = ();
         if (defined($var = $options{$cfg}{variant}{''})) {
             @var = map { my @arr = @{$_}; splice(@arr, 1) } @{$var};
         }
         # Merge in root config's dimension-less variant list.
-        @var = unique(@{$cfg{''}}, @var);
+        @var = unique(@{ ($cfg{''} || []) }, @var);
         $cfg{$cfg} = \@var;
     }
 
     # --variant cfg/dim=var...
     foreach $cfg (grep { $_ } keys(%configs)) {
-        while (($dim, $var) = each(%{$options{$cfg}{variant}})) {
+        %tbl = (%{$dim{''}}, %{ ($options{$cfg}{variant} || {}) });
+        while (($dim, $var) = each(%tbl)) {
             next if (! $dim);
-            @var = ();
+            my @var = ();
             if (defined($var = $options{$cfg}{variant}{$dim})) {
                 @var = map { my @arr = @{$_}; splice(@arr, 1) } @{$var};
             }
             # Merge in root config's dimensioned variants.
-            @var = unique(@{$dim{''}{$dim}}, @var);
+            @var = unique(@{ ($dim{''}{$dim} || []) }, @var);
             $dim{$cfg}{$dim} = \@var;
         }
     }
 
     # Assign to configuration.
     foreach $cfg (keys(%configs)) {
-        $configs{$cfg}{variant}     = $dim{$cfg};
-        $configs{$cfg}{variant}{''} = $cfg{$cfg};
+        $configs{$cfg}{variant} = {
+            %{ ($dim{$cfg} || {}) },
+            ($cfg{$cfg} ? ('' => $cfg{$cfg}) : ()),
+        };
     }
 }
 
-#
-# Build a Rosetta Stone for inter-project package lookups.
-#
-# --search-order [PROJ=]PROJ...
-#   [For project PROJ] Set the order of target resolution.
-# --search-group [PROJ/]PROJ=PROJ...
-#   [For project PROJ] Create named search group.
-# --search-alias [PROJ/]PROJ=PROJ
-#   [For project PROJ] Alias a named configuration.
-# 
 sub resolve_lookups () {
     my %alias;
     my %group;
@@ -1255,6 +1261,21 @@ sub resolve_verbose () {
     }
 }
 
+sub resolve_overlay () {
+    my ($cfg, $ovl, @ovl);
+
+    @ovl = @{ ($options{''}{overlay} || []) };
+    @ovl = unique(map { my @arr = @{$_}; splice(@arr, 1) } @ovl);
+    $configs{''}{overlay} = \@ovl;
+
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        my @sub = @{ ($options{$cfg}{overlay} || []) };
+           @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+           @sub = unique(@ovl, @sub);
+        $configs{$cfg}{overlay} = \@sub;
+    }
+}
+
 sub parse_options (@) {
     my ($unknown, $untaken, $errlist) = Grace::Options::parse(\@options, @_);
 
@@ -1277,7 +1298,7 @@ sub parse_options (@) {
 
         if ((defined($key) ? 1 : 0) ^ (defined($aop) ? 1 : 0)) {
             my $msg = sprintf("INTERNAL: K=%s, O=%s, V=%s",
-                              _print($key), _print($aop), _print($val)
+                              printdef($key), printdef($aop), printdef($val)
                              );
             _error($msg);
         }
@@ -1302,6 +1323,9 @@ sub parse_options (@) {
 #    resolve_toolset();
 #    resolve_environ_config();
     resolve_environ();
+#    resolve_variant_config();
+    resolve_variant();
+    resolve_overlay();
     resolve_setvars();
     resolve_targets();
     resolve_lookups();
