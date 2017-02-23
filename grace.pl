@@ -1,5 +1,11 @@
 #!/usr/bin/perl -w
 
+#
+# This script sets up a simultaneous multi-platform, multi-configuration,
+# multi-rooted build.  The script parses and resolves command line options
+# to configurations on multiple Grace builders bound to a common scheduler.
+#
+
 use Cwd;
 use File::Spec;
 use Data::Dumper;
@@ -10,6 +16,7 @@ use Grace::Paths;
 use Grace::Config::Systems;
 #use Grace::Config::Toolset;
 #use Grace::Config::Environ;
+#use Grace::Config::Variant;
 
 my  $program        = (File::Spec->splitpath($0))[2];
 my  $version        = '0.0';
@@ -17,16 +24,45 @@ my  $cfgfile        = 'Graceconf';
 my  $prjfile        = 'Graceproj';
 my  $optfile        = 'Graceopts';
 my  $outroot        = 'out';
-my  $genroot        = $outroot;
 my  $pubroot        = 'pub';
+my  $verbose        = '';
 my  $systems_config = 'systems.cfg';
-my  $sysconf        = 'default';
+my  $systems        = 'default';
+my  $variant_config = 'variant.cfg';
+my  $variant        = 'debug';
 my  $toolset_config = 'toolset.cfg';
 my  $toolset        = 'common';
 my  $environ_config = 'environ.cfg';
 
+# Basic default variant set.  Customized in variant.cfg for complex builds.
+my  %variant = (
+    variant => {
+        # Keys here describe variant dimensions.
+        sysconf => {
+        },
+        instrum => {
+            debug   => { },
+            release => { },
+            profile => { },
+            dbginfo => { },
+        },
+    },
+    outtree => sub {
+        eval '$instrum/$sysconf'
+            . (eval '$subarch' ? eval '/fat/$subarch' : '')
+            . ((eval '$srcpath' !~ m{^(?:\.|/+)?$}o) ? eval '/$srcpath' : '');
+    },
+    objtree => sub {
+        eval 'obj/$objcode'
+            . ((eval '$relpath' !~ m{^(?:\.|/+)?$}o) ? eval '/$relpath' : '');
+    },
+    tgttree => sub {
+        eval 'tgt/$tgttype/$tgtcode/$tgtstem'
+    },
+);
+
 my  %options;
-my  %globals;
+my  %configs;
 my  @warning;
 my  @errlist;
 my  $nobuild = 0;
@@ -73,7 +109,6 @@ my %aliases = (
     src      => 'srcroot',
     rel      => 'relpath',
     out      => 'outroot',
-    gen      => 'genroot',
     pub      => 'pubroot',
     platform => 'sysconf',
 );
@@ -96,13 +131,7 @@ my @options = (
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]PATH',
-        help        => 'Generate build artifacts to this directory tree',
-    }, {
-        long        => [ 'genroot', 'gen', ],
-        type        => OPT_REQUIRED,
-        func        => \&_opt_list,
-        args        => '[PROJ=]PATH',
-        help        => 'Generate sources to this directory tree [default: outroot]',
+        help        => 'Store generated sources, artifacts in this tree',
     }, {
         long        => [ 'pubroot', 'pub', ],
         long_hidden => 'publish',
@@ -118,14 +147,20 @@ my @options = (
         args        => '[PROJ=]ARCH...',
         help        => 'Configure for target platforms',
     }, {
-        long        => 'product',
+        long        => 'variant',
         type        => OPT_REQUIRED,
-        func        => \&_opt_list,
-        args        => '[PROJ=]PROD...',
+        func        => \&_opt_dict,
+        args        => [ '[[PROJ/]TYPE=]NAME...', '[PROJ/]NAME...' ],
+        help        => 'Restrict build product variants',
+    }, {
+        long        => 'verbose',
+        type        => OPT_REQUIRED,
+        func        => \&_opt_dict,
+        args        => [ '[PROJ/]PART=LEVEL', '[PROJ/]PART...' ],
         help        => 'Restrict build product variants',
     }, {
         long        => 'toolset',
-        type        => OPT_UNWANTED,
+        type        => OPT_REQUIRED,
         func        => \&_opt_dict,
         args        => [ '[[PROJ/]ARCH=]TOOL...', '[PROJ/]TOOL...' ],
         help        => 'Force use of toolset TOOL for platform ARCH',
@@ -134,7 +169,7 @@ my @options = (
         type        => OPT_UNWANTED,
         func        => \&_opt_vers,
         help        => 'Print version string',
-    }, {
+   }, {
         long        => [ 'keep-going', 'no-keep-going' ],
         type        => OPT_ATTACHED,
         func        => \&_opt_flag,
@@ -274,20 +309,20 @@ my @options = (
         long        => 'search-order',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
-        args        => '[PROJ=]NAME...',
+        args        => '[PROJ+=]PROJ...',
         help        => 'Set target origin search order',
     }, {
         long        => 'search-group',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
-        args        => '[NAME=]PROJ...',
+        args        => '[PROJ/]NAME=PROJ...',
         help        => 'Cluster projects together in search order',
     },
 );
 
-my $_rex_int = qr{};
-my $_rex_pos = qr{};
-my $_rex_flo = qr{};
+my $_rex_int = qr{[+-]?\d+};
+my $_rex_pos = qr{[+]?\d+};
+my $_rex_flo = qr{[+-]?(?:\d*\.\d+|\d+(?:\.\d+))(?:[Ee][+-]?\d+)?};
 
 sub _error (@) {
     push(@errlist, @_);
@@ -307,7 +342,7 @@ sub _print ($) {
 sub _match ($$) {
     my ($arg, $rex) = @_;
 
-    if ($arg =~ qr{$rex}) {
+    if ($arg =~ qr{^$rex$}) {
         return $arg;
     } else {
         return undef;
@@ -423,8 +458,8 @@ sub _opt_list ($$$$) {
         $nam = $aliases{$nam};
     }
 
-    my ($cfg, $Aop, $val)
-        = ($arg =~ m{^(?:((?:(?>[^:?+=]+)|(?>[:?+](?!=)))+)?([:?+]?=))?(.*)$}o);
+    my ($cfg, $Aop, $val) =
+        ($arg =~ m{^(?:((?:(?>[^:?+=]+)|(?>[:?+](?!=)))+)?([:?+]?=))?(.*)$}o);
 
     if ((defined($cfg) ? 1 : 0) ^ (defined($Aop) ? 1 : 0)) {
         my $msg = sprintf("INTERNAL: C=%s, A=%s, V=%s",
@@ -466,8 +501,8 @@ sub __opt_dist (@) {
 
     ($cfg, $arg) = ($arg =~ m{^(?:((?:[^:?+=/]+|[:?+](?!=))+)?/)?(.+)$}o);
 
-    ($key, $Aop, $val)
-        = ($arg =~ m{^(?:((?:[^:?+=]+|[:?+](?!=))+)?([:?+]?=))?(.*)$}o);
+    ($key, $Aop, $val) =
+        ($arg =~ m{^(?:((?:[^:?+=]+|[:?+](?!=))+)?([:?+]?=))?(.*)$}o);
 
     if ((defined($key) ? 1 : 0) ^ (defined($Aop) ? 1 : 0)) {
         my $msg = sprintf("INTERNAL: C=%s, K=%s, A=%s, V=%s",
@@ -485,16 +520,19 @@ sub __opt_dist (@) {
         $key = '';
     }
 
-    my @val = &{$fun}($val || '');
+    my @key = ( Grace::Options::split($key || '') );
+    my @val = &{$fun}(defined($val) ? $val : '');
     my $tbl;
 
     $tbl = ($options{$cfg} || ($options{$cfg} = {}));
 
-    if (($Aop ne '?=') || ! defined($tbl->{$nam}->{$key})) {
-        if ($Aop eq '+=') {
-            push(@{$tbl->{$nam}->{$key}}, [ '+', @val ]);
-        } else {
-            push(@{$tbl->{$nam}->{$key}}, [ '=', @val ]);
+    foreach $key (@key) {
+        if (($Aop ne '?=') || ! defined($tbl->{$nam}->{$key})) {
+            if ($Aop eq '+=') {
+                push(@{$tbl->{$nam}->{$key}}, [ '+', @val ]);
+            } else {
+                push(@{$tbl->{$nam}->{$key}}, [ '=', @val ]);
+            }
         }
     }
 
@@ -569,24 +607,6 @@ sub resolve_srcroot () {
         }
     }
 }
-
-#        long        => 'search-alias',
-#        type        => OPT_REQUIRED,
-#        func        => \&_opt_dict,
-#        args        => '[PROJ/]NAME=PROJ',
-#        help        => 'Set project alias for resolving target searches',
-#    }, {
-#        long        => 'search-order',
-#        type        => OPT_REQUIRED,
-#        func        => \&_opt_list,
-#        args        => '[PROJ=]NAME...',
-#        help        => 'Set target origin search order',
-#    }, {
-#        long        => 'search-group',
-#        type        => OPT_REQUIRED,
-#        func        => \&_opt_list,
-#        args        => '[NAME=]PROJ...',
-#        help        => 'Cluster projects together in search order',
 
 sub resolve_relpath () {
     my (@rel, $rel);
@@ -669,10 +689,6 @@ sub _resolve_outdir ($) {
 
 sub resolve_outroot () {
     _resolve_outdir('outroot');
-}
-
-sub resolve_genroot () {
-    _resolve_outdir('genroot');
 }
 
 sub resolve_pubroot () {
@@ -759,7 +775,7 @@ sub resolve_systems_config () {
     );
 }
 
-sub resolve_sysconf () {
+sub resolve_systems () {
     my (%cfg, $cfg);
     my (%sys, @sys, $sys);
     my ($top, @def, $tbl, $sub);
@@ -768,7 +784,7 @@ sub resolve_sysconf () {
         # --sysconf=sys...
         @def = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$sys});
     } else {
-        @def = ( $sysconf );
+        @def = ( $systems );
     }
 
     foreach $cfg (keys(%configs)) {
@@ -998,7 +1014,7 @@ sub resolve_environ () {
 
     # Set variables in the base environment as specified on the command line.
     # --setenv var=val
-    %env = ( %env, %{ ($options{''}{setenv} || ()) } );
+    %env = ( %env, %{ ($options{''}{setenv} || {}) } );
 
     # Now, march through the established build configs applying settings.
     foreach my $cfg (keys(%configs)) {
@@ -1014,7 +1030,7 @@ sub resolve_environ () {
         # in this loop, because it's already been done.
         if ($cfg ne '') {
             # --setenv config/var=val
-            %sub = ( %sub, %{ ($options{$cfg}{setenv} || ()) } );
+            %sub = ( %sub, %{ ($options{$cfg}{setenv} || {}) } );
         }
 
         # Stow the resolved environment for each configuration.  These
@@ -1029,19 +1045,214 @@ sub resolve_environ () {
     }
 }
 
-sub resolve_targets () {
-}
-
-sub resolve_product () {
-}
-
-sub resolve_lookups () {
-}
-
 sub resolve_setvars () {
+    my %var = (defined($options{''}{setvar}) ? %{$options{''}{setvar}} : ());
+    my $cfg;
+
+    foreach $cfg (keys(%configs)) {
+        my %sub;
+
+        if (defined($options{$cfg}{setvar})) {
+            %sub = %{$options{$cfg}{setvar}};
+        }
+        %sub = ( %var, %sub );
+
+        $configs{$cfg}{setvar} = \%sub;
+    }
 }
 
-sub resolve_nobuild () {
+sub resolve_targets () {
+    my (@tgt, $tgt, $cfg);
+
+    if (defined($tgt = $options{''}{target})) {
+        @tgt = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$tgt});
+    }
+
+    foreach $cfg (keys(%configs)) {
+        my @sub = unique(@tgt, @{($options{$cfg}{target} || [])});
+        $configs{$cfg}{target} = \@sub;
+    }
+}
+
+sub resolve_variant () {
+    my (%cfg, $cfg);
+    my (%dim, $dim);
+    my (@var, $var);
+
+    # --variant var...
+    @var = ();
+    if (defined($var = $options{''}{variant}{''})) {
+        @var = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$var});
+    }
+    $cfg{''} = \@var;
+
+    # --variant dim=var...
+    while (($dim, $var) = each(%{$options{''}{variant}})) {
+        next if (! $dim);
+        @var = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$var});
+        $dim{''}{$dim} = \@var;
+    }
+
+    # --variant cfg/var...
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        @var = ();
+        if (defined($var = $options{$cfg}{variant}{''})) {
+            @var = map { my @arr = @{$_}; splice(@arr, 1) } @{$var};
+        }
+        # Merge in root config's dimension-less variant list.
+        @var = unique(@{$cfg{''}}, @var);
+        $cfg{$cfg} = \@var;
+    }
+
+    # --variant cfg/dim=var...
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        while (($dim, $var) = each(%{$options{$cfg}{variant}})) {
+            next if (! $dim);
+            @var = ();
+            if (defined($var = $options{$cfg}{variant}{$dim})) {
+                @var = map { my @arr = @{$_}; splice(@arr, 1) } @{$var};
+            }
+            # Merge in root config's dimensioned variants.
+            @var = unique(@{$dim{''}{$dim}}, @var);
+            $dim{$cfg}{$dim} = \@var;
+        }
+    }
+
+    # Assign to configuration.
+    foreach $cfg (keys(%configs)) {
+        $configs{$cfg}{variant}     = $dim{$cfg};
+        $configs{$cfg}{variant}{''} = $cfg{$cfg};
+    }
+}
+
+#
+# Build a Rosetta Stone for inter-project package lookups.
+#
+# --search-order [PROJ=]PROJ...
+#   [For project PROJ] Set the order of target resolution.
+# --search-group [PROJ/]PROJ=PROJ...
+#   [For project PROJ] Create named search group.
+# --search-alias [PROJ/]PROJ=PROJ
+#   [For project PROJ] Alias a named configuration.
+# 
+sub resolve_lookups () {
+    my %alias;
+    my %group;
+    my %order;
+
+    my ($nam, $aop, $grp, $ali, $cfg, @grp, %tbl);
+
+    # --search-group grp=nam...
+    %tbl = %{ ($options{''}{'search-group'} || {}) };
+    while (($grp, $nam) = each(%tbl)) {
+        @grp = @{$grp};
+        $aop = shift(@grp);
+        if ($aop eq '+') {
+            unshift(@grp, @{ ($group{''}{$nam} || []) });
+        }
+        $group{''}{$nam} = [ unique(@grp) ];
+    }
+
+    # --search-order=cfg...
+    @grp = ();
+    foreach $grp (@{ ($options{''}{'search-order'} || []) }) {
+        @grp = @{$grp};
+        $aop = shift(@$grp);
+        if ($aop eq '+') {
+            unshift(@grp, @{ ($order{''} || []) });
+        }
+    }
+    $order{''} = [ unique(@grp) ];
+
+    # --search-alias nam=cfg
+    %tbl = %{ ($options{''}{'search-alias'} || {}) };
+    while (($ali, $nam) = each(%tbl)) {
+        # Last one wins.
+        $alias{''}{$ali} = $nam->[-1]->[-1];
+    }
+
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        # --search-group cfg/grp=cfg...
+        %tbl = %{ ($options{$cfg}{'search-group'} || {}) };
+        while (($nam, $grp) = each(%tbl)) {
+            @grp = @{ ($group{''}{$nam} || []) };
+            foreach $grp (@{$grp}) {
+                $aop = shift(@{$grp});
+                if ($aop eq '+') {
+                    push(@grp, @{$grp});
+                } else {
+                    @grp = @{$grp};
+                }
+            }
+            $group{$cfg}{$nam} = [ unique(@grp) ];
+        }
+
+        # --search-order cfg/cfg...
+        @grp = ( @{ ($order{''} || []) } );
+        foreach $grp (@{ ($options{$cfg}{'search-order'} || []) }) {
+            $aop = shift(@{$grp});
+            if ($aop eq '+') {
+                push(@grp, @{$grp});
+            } else {
+                @grp = @{$grp};
+            }
+        }
+        $order{$cfg} = [ unique(@grp) ];
+
+        # --search-alias cfg/nam=cfg
+        $alias{$cfg} = { %{ ($alias{''} || {}) } };
+        %tbl = %{ ($options{$cfg}{'search-alias'} || {}) };
+        while (($ali, $nam) = each(%tbl)) {
+            # Last one wins.
+            $alias{$cfg}{$ali} = $nam->[-1]->[-1];
+        }
+    }
+
+    foreach $cfg (keys(%configs)) {
+        $configs{$cfg}{search_order} = $order{$cfg};
+        $configs{$cfg}{search_alias} = $alias{$cfg};
+        $configs{$cfg}{search_group} = $group{$cfg};
+    }
+}
+
+sub resolve_verbose () {
+    my (%cfg, $cfg, @sub, $sub, $lev);
+
+    # --verbose=foo --> --verbose foo=1
+    @sub = @{ ($options{''}{verbose}{''} || []) };
+    @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+    foreach $sub (@sub) {
+        $cfg{''}{$sub} = 1;
+    }
+
+    # --verbose foo=?
+    while (($sub, $lev) = each(%{$options{''}{verbose}})) {
+        # Last setting wins.
+        $cfg{''}{$sub} = $lev->[-1]->[-1];
+    }
+
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        # --verbose cfg/foo...
+        @sub = @{ ($options{$cfg}{verbose}{''} || []) };
+        @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+        $cfg{$cfg} = { %{ $cfg{''} || {} } };
+        foreach $sub (@sub) {
+            if (! defined($cfg{$cfg}{$sub})) {
+                $cfg{$cfg}{$sub} = 1;
+            }
+        }
+
+        # --verbose cfg/foo=?
+        while (($sub, $lev) = each(%{$options{$cfg}{verbose}})) {
+            next if (! $sub);
+            # Last setting wins.
+            $cfg{$cfg}{$sub} = $lev->[-1]->[-1];
+        }
+    }
+
+    foreach $cfg (keys(%configs)) {
+        $configs{$cfg}{verbose} = $cfg{$cfg};
+    }
 }
 
 sub parse_options (@) {
@@ -1078,39 +1289,29 @@ sub parse_options (@) {
         }
     }
 
-print(STDERR "resolve_srcroot()\n");
     resolve_srcroot();
-print(STDERR "resolve_relpath()\n");
     resolve_relpath();
-print(STDERR "resolve_outroot()\n");
     resolve_outroot();
-print(STDERR "resolve_genroot()\n");
-    resolve_genroot();
-print(STDERR "resolve_pubroot()\n");
     resolve_pubroot();
-print(STDERR "resolve_systems_config()\n");
+    resolve_flagset();
     resolve_systems_config();
-print(STDERR "resolve_sysconf()\n");
-    resolve_sysconf();
+    resolve_systems();
 #print(STDERR "resolve_toolset_config()\n");
 #    resolve_toolset_config();
 #print(STDERR "resolve_toolset()\n");
 #    resolve_toolset();
 #    resolve_environ_config();
-    resolve_flagset();
     resolve_environ();
-    resolve_product();
-print(STDERR "resolve_lookups()\n");
-    resolve_lookups();
-    resolve_targets();
     resolve_setvars();
-    resolve_nobuild();
+    resolve_targets();
+    resolve_lookups();
+    resolve_verbose();
 
-    my $ostream = *STDOUT;
+    my $ostream = STDOUT;
 
     if (@errlist) {
         $showhlp = 1;
-        $ostream = *STDERR;
+        $ostream = STDERR;
     }
 
     if ($showver) {
@@ -1144,7 +1345,6 @@ print(Dumper([ 'OPTIONS', \%options ],
              [ 'CONFIGS', \%configs ])); 
 
 __DATA__
-my %configs;
 if (spawn_configs(\%configs)) {
     my %schedul = (
         nice => $nicelev,

@@ -2,7 +2,7 @@ package Grace::Options;
 
 use strict;
 use warnings;
-use diagnostics;
+#use diagnostics;
 
 BEGIN {
     our @ISA         = qw{Exporter};
@@ -356,7 +356,7 @@ sub split ($) {
     my $istr = shift;
     my @oarr;
 
-    while ($istr) {
+    while ($istr ne '') {
         $istr =~ s{^(?>[\s,]*)($_rex_split)}{}o;
         push(@oarr, $1);
     }

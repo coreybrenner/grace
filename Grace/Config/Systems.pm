@@ -31,7 +31,7 @@ sub _closure ($) {
     # Inject an error into the configuration.
     sub _error (@) {
         my $head = "Config '" . join('->', @path) . "'";
-        push(@errs, map { print("$_\n"); $_ } map { "$head: $_" } @_);
+        push(@errs, map { $_ } map { "$head: $_" } @_);
         return 1;
     }
 
@@ -279,9 +279,7 @@ sub _closure ($) {
 
     my @pass_errs = @errs;
     my @pass_warn = @warn;
-print(STDERR ">>>> raw config:".Dumper(\%keep));
     my $pass_conf = Grace::ActiveConfig::activate(\%keep);
-print(STDERR ">>>> activated:".Dumper($pass_conf));
 
     # Clear these so the values don't persist.
     @errs = ();
