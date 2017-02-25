@@ -143,7 +143,7 @@ sub new {
 
     $self->{_file_} = \@file;
 
-    ($data, $errs, $warn) = merge_file(@file);
+    ($data, $errs, $warn) = $type->merge_file(@file);
 
     $self->warning(@{$warn});
     $self->error(@{$errs});

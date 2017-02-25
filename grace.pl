@@ -37,14 +37,14 @@ my  $environ_config = 'environ.cfg';
 # Basic default variant set.  Customized in variant.cfg for complex builds.
 my  %variant = (
     overlay => {
-        strict  => {
-        },
+        strict  => { },
     },
     variant => {
         # Keys here describe variant dimensions.
         sysconf => {
         },
         instrum => {
+            lint    => { },
             debug   => { },
             release => { },
             profile => { },
@@ -144,8 +144,15 @@ my @options = (
         args        => '[PROJ=]PATH',
         help        => 'Publish packages to this directory tree',
     }, {
+        long        => 'include-dir',
+        flag        => 'I',
+        type        => OPT_REQUIRED,
+        func        => \&_opt_list,
+        args        => '[PROJ=]PATH...',
+        help        => 'Search these dirs for build configuration',
+    }, {
         long        => [ 'sysconf', 'sys', ],
-        hidden_long => 'platform',
+        long_hidden => 'platform',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]ARCH...',
@@ -464,7 +471,7 @@ sub _opt_list ($$$$) {
     }
 
     my ($cfg, $Aop, $val) =
-        ($arg =~ m{^(?:((?:(?>[^/:?+=]+)|(?>[:?+](?!=)))+)?(?:/+|([:?+]?=)))?(.*)$}o);
+        ($arg =~ m{^(?:((?:(?>[^:?+=]+)|(?>[:?+](?!=)))+)?([:?+]?=))?(.*)$}o);
     if (! defined($cfg)) {
         $cfg = '';
     }
@@ -695,143 +702,79 @@ sub resolve_pubroot () {
     _resolve_outdir('pubroot');
 }
 
-sub _resolve_config (%) {
-    my %setup = @_;
+sub resolve_include () {
+    # --include-dir dir...
+    my ($inc, @inc, @def, $cfg);
 
-    my (@def, $def);
-    my (@fil, $fil);
-    my $cfg;
-
-    my $cwd = Cwd::realpath(Cwd::cwd());
-
-    if (! defined($fil = $options{''}{$setup{key}})) {
-        @def = ( $setup{dfl} );
-    } else {
-        @fil = map { my @arr = @{$_}; splice(@arr, 1) } @{$fil};
-        foreach $fil (@fil) {
-            if (! File::Spec->file_name_is_absolute($fil)) {
-                $fil = File::Spec->catdir($cwd, $fil);
+    if (defined($inc = $options{''}{'include-dir'})) {
+        @def = ();
+        foreach $inc (map { my @arr = @{$_}; splice(@arr, 1) } @{$inc}) {
+            if (! File::Spec->file_name_is_absolute($inc)) {
+                $inc = File::Spec->catdir(Cwd::cwd(), $inc);
             }
-            if (! -f $fil) {
-                _error("--$setup{key} '$fil': $!");
-            } else {
-                push(@def, Cwd::realpath($fil));
-            }
+            push(@def, Cwd::realpath($inc));
         }
-        @def = unique(@def);
+        $configs{''}{include} = \@def;
     }
 
-    foreach $cfg (keys(%configs)) {
-        if (! defined($fil = $options{$cfg}{$setup{key}})) {
-            @fil = @def;
-        } else {
-            foreach $fil (@{$fil}) {
-                if (! File::Spec->file_name_is_absolute($fil)) {
-                    $fil = File::Spec->catdir($cwd, $fil);
+    foreach $cfg (grep { $_ } keys(%configs)) {
+        @inc = ();
+        if (defined($inc = $options{$cfg}{'include-dir'})) {
+            foreach $inc (map { my @arr = @{$_}; splice(@arr, 1) } @{$inc}) {
+                if (! File::Spec->file_name_is_absolute($inc)) {
+                    $inc = File::Spec->catdir(Cwd::cwd(), $inc);
                 }
-                if (! -f $fil) {
-                    _error("--$setup{key} $cfg='$fil': $!");
-                } else {
-                    push(@fil, Cwd::realpath($fil));
-                }
-            }
-            @fil = unique(@fil);
-        }
-
-        foreach $top (@{$configs{$cfg}{srcroot}}) {
-            foreach $fil (@fil) {
-                if (! File::Spec->file_name_is_absolute($fil)) {
-                    # This happens when no --systems-config=... is given,
-                    # and the default has fallen through.  Look for a
-                    # systems config file in the root of each source tree,
-                    # which can apply to that build.
-                    $fil = File::Spec->catdir($top, $fil);
-                    if (! -f $fil || ! -r $fil) {
-                        _error("$setup{msg} '$fil': $!");
-                        next;
-                    }
-                    $fil = Cwd::realpath($fil);
-                }
-                push(@{$configs{$cfg}{$setup{fil}}{$top}}, $fil);
-            }
-
-            my $sys = "$setup{typ}"->new(@{$configs{$cfg}{$setup{fil}}{$top}});
-            _warn($sys->warnings());
-            if (! _error($sys->errors())) {
-                $configs{$cfg}{$setup{tbl}}{$top} = $sys;
+                push(@inc, Cwd::realpath($inc));
             }
         }
+        @inc = unique(@def, @inc);
+        $configs{$cfg}{include} = \@inc;
     }
-}
-
-sub resolve_systems_config () {
-    _resolve_config (
-        dfl => $systems_config,
-        key => 'systems-config',
-        fil => 'systems_config_file',
-        tbl => 'systems_config_dict',
-        msg => 'Target system config file',
-        typ => 'Grace::Config::Systems',
-    );
 }
 
 sub resolve_systems () {
     my (%cfg, $cfg);
     my (%sys, @sys, $sys);
     my ($top, @def, $tbl, $sub);
+    my ($arr, $aop);
 
-    if (defined($sys = $options{''}{sysconf})) {
-        # --sysconf=sys...
-        @def = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$sys});
-    } else {
+    # Build default systems list.
+    if (! defined($sys = $options{''}{sysconf})) {
         @def = ( $systems );
+    } else {
+        # --sysconf=sys...
+        foreach $arr (@{$sys}) {
+            $aop = shift(@{$arr});
+            if ($aop eq '+') {
+                push(@def, @{$arr});
+            } else {
+                @def = ( @{$arr} );
+            }
+        }
+        @def = unique(@def);
     }
 
+    # Create system config list for named configurations.
     foreach $cfg (keys(%configs)) {
-        my %sys = ();
-        if (defined($sys = $options{$cfg}{sysconf})) {
-            @sys = unique(map { my @arr = @{$_}; splice(@arr, 1) } @{$sys});
-        } else {
+        if (! defined($sys = $options{$cfg}{sysconf})) {
             @sys = @def;
-        }
-
-        $sys = $configs{$cfg}{systems_config_dict};
-        foreach (@sys) {
-            while (($top, $tbl) = each(%{$sys})) {
-                if ($sub = $tbl->system($_)) {
-                    $sys{$_}{$top} = $sub;
+        } else {
+            @sys = ();
+            foreach $arr (@{$sys}) {
+                $aop = shift(@{$arr});
+                if ($aop eq '+') {
+                    push(@sys, @{$arr});
+                } else {
+                    @sys = @{$arr};
                 }
             }
         }
-
-        foreach (@sys) {
-            if (! $sys{$_}) {
-                _warn("Target platform '$_' unknown in configuration '$cfg'");
-            }
-        }
-        if (! keys(%sys)) {
-            _error("No target platforms matched in configuration '$cfg'");
-            next;
-        }
-
-        $configs{$cfg}{sysconf} = \%sys;
+        $configs{$cfg}{sysconf} = [ unique(@sys) ];
     }
-}
-
-sub resolve_toolset_config () {
-    _resolve_config (
-        dfl => $toolset_config,
-        key => 'toolset-config',
-        fil => 'toolset_config_file',
-        tbl => 'toolset_config_dict',
-        msg => 'Target toolset config file',
-        typ => 'Grace::Config::Toolset',
-    );
 }
 
 # --toolset=set --toolset cfg/set --toolset sys=set --toolset cfg/sys=set
 sub resolve_toolset () {
-
     # --toolset vs2015
     # --toolset linux_x86-32=gcc6
     # --toolset thistree/java-1.7 --toolset thattree/java-1.9
@@ -992,17 +935,6 @@ sub resolve_flagset () {
     );
 }
 
-sub resolve_environ_config () {
-    _resolve_config (
-        dfl => $environ_config,
-        key => 'environ-config',
-        fil => 'environ_config_file',
-        tbl => 'environ_config_dict',
-        msg => 'Environment config file',
-        typ => 'Grace::Config::Environ',
-    );
-}
-
 sub resolve_environ () {
     # Start out with an empty environment.  If someone hasn't said
     # "start all builds with an empty environment" (--empty-environ),
@@ -1072,17 +1004,6 @@ sub resolve_targets () {
         my @sub = unique(@tgt, @{($options{$cfg}{target} || [])});
         $configs{$cfg}{target} = \@sub;
     }
-}
-
-sub resolve_variant_config () {
-    _resolve_config (
-        dfl => $variant_config,
-        key => 'variant-config',
-        fil => 'variant_config_file',
-        tbl => 'variant_config_dict',
-        msg => 'Variant config file',
-        typ => 'Grace::Config::Variant',
-    );
 }
 
 sub resolve_variant () {
@@ -1276,6 +1197,105 @@ sub resolve_overlay () {
     }
 }
 
+sub _resolve_config (%) {
+    my %setup = @_;
+
+    my (@def, $def);
+    my (@fil, $fil);
+    my $cfg;
+
+    my $cwd = Cwd::realpath(Cwd::cwd());
+
+    if (! defined($fil = $options{''}{$setup{key}})) {
+        @def = ( $setup{dfl} );
+    } else {
+        @fil = map { my @arr = @{$_}; splice(@arr, 1) } @{$fil};
+        foreach $fil (@fil) {
+            if (! File::Spec->file_name_is_absolute($fil)) {
+                $fil = File::Spec->catdir($cwd, $fil);
+            }
+            if (! -f $fil) {
+                _error("--$setup{key} '$fil': $!");
+            } else {
+                push(@def, Cwd::realpath($fil));
+            }
+        }
+        @def = unique(@def);
+    }
+
+    foreach $cfg (keys(%configs)) {
+        if (! defined($fil = $options{$cfg}{$setup{key}})) {
+            @fil = @def;
+        } else {
+            foreach $fil (@{$fil}) {
+                if (! File::Spec->file_name_is_absolute($fil)) {
+                    $fil = File::Spec->catdir($cwd, $fil);
+                }
+                if (! -f $fil) {
+                    _error("--$setup{key} $cfg='$fil': $!");
+                } else {
+                    push(@fil, Cwd::realpath($fil));
+                }
+            }
+            @fil = unique(@fil);
+        }
+
+        foreach $top (@{$configs{$cfg}{srcroot}}) {
+            foreach $fil (@fil) {
+                if (! File::Spec->file_name_is_absolute($fil)) {
+                    # This happens when no --systems-config=... is given,
+                    # and the default has fallen through.  Look for a
+                    # systems config file in the root of each source tree,
+                    # which can apply to that build.
+                    $fil = File::Spec->catdir($top, $fil);
+                    if (! -f $fil || ! -r $fil) {
+                        _error("$setup{msg} '$fil': $!");
+                        next;
+                    }
+                    $fil = Cwd::realpath($fil);
+                }
+                push(@{$configs{$cfg}{$setup{fil}}{$top}}, $fil);
+            }
+        }
+    }
+}
+
+sub resolve_systems_config () {
+    _resolve_config (
+        dfl => $systems_config,
+        key => 'systems-config',
+        fil => 'systems_config_file',
+        msg => 'Target system config file',
+    );
+}
+
+sub resolve_toolset_config () {
+    _resolve_config (
+        dfl => $toolset_config,
+        key => 'toolset-config',
+        fil => 'toolset_config_file',
+        msg => 'Target toolset config file',
+    );
+}
+
+sub resolve_environ_config () {
+    _resolve_config (
+        dfl => $environ_config,
+        key => 'environ-config',
+        fil => 'environ_config_file',
+        msg => 'Environment config file',
+    );
+}
+
+sub resolve_variant_config () {
+    _resolve_config (
+        dfl => $variant_config,
+        key => 'variant-config',
+        fil => 'variant_config_file',
+        msg => 'Variant config file',
+    );
+}
+
 sub parse_options (@) {
     my ($unknown, $untaken, $errlist) = Grace::Options::parse(\@options, @_);
 
@@ -1314,22 +1334,21 @@ sub parse_options (@) {
     resolve_relpath();
     resolve_outroot();
     resolve_pubroot();
+    resolve_include();
     resolve_flagset();
-    resolve_systems_config();
     resolve_systems();
-#print(STDERR "resolve_toolset_config()\n");
-#    resolve_toolset_config();
-#print(STDERR "resolve_toolset()\n");
-#    resolve_toolset();
-#    resolve_environ_config();
+    resolve_toolset();
     resolve_environ();
-#    resolve_variant_config();
     resolve_variant();
     resolve_overlay();
     resolve_setvars();
     resolve_targets();
     resolve_lookups();
     resolve_verbose();
+    resolve_systems_config();
+    resolve_toolset_config();
+    resolve_environ_config();
+    resolve_variant_config();
 
     my $ostream = STDOUT;
 
@@ -1358,9 +1377,37 @@ sub parse_options (@) {
     }
 }
 
-sub spawn_configs ($) {
-    my $conf = shift;
-    return 1;
+sub create_builders () {
+    my (%cfg, @cfg, $cfg, $dir, %bld, $bld);
+
+    if (! (@cfg = grep { $_ } keys(%configs))) {
+        @cfg = keys(%configs);
+    }
+
+    foreach $cfg (@cfg) {
+        foreach $dir (@{$configs{$cfg}{srcroot}}) {
+            %cfg = (
+                %{$configs{$cfg}},
+                cfgname => $cfg,
+                srcroot => $dir,
+                relpath => $configs{$cfg}{relpath}{$dir},
+                outroot => $configs{$cfg}{outroot}{$dir},
+                pubroot => $configs{$cfg}{pubroot}{$dir},
+                systems_config_file =>
+                    $configs{$cfg}{systems_config_file}{$dir},
+                toolset_config_file =>
+                    $configs{$cfg}{toolset_config_file}{$dir},
+                environ_config_file =>
+                    $configs{$cfg}{toolset_config_file}{$dir},
+                variant_config_file =>
+                    $configs{$cfg}{variant_config_file}{$dir},
+            );
+
+            $bld = Grace::Builder::Grace->new(%cfg);
+
+            $bld{$cfg}{$dir} = $bld;
+        }
+    }
 }
 
 parse_options(@ARGV);
@@ -1369,7 +1416,7 @@ print(Dumper([ 'OPTIONS', \%options ],
              [ 'CONFIGS', \%configs ])); 
 
 __DATA__
-if (spawn_configs(\%configs)) {
+if (create_builders()) {
     my %schedul = (
         nice => $nicelev,
         jobs => $numjobs,
