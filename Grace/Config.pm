@@ -158,7 +158,12 @@ sub new {
 # Dummy function.  Override in derived classes.
 sub files ($) {
     my $self = shift;
-    return @{$self->{file}};
+    return ( @{$self->{_file_}} );
+}
+
+sub data ($) {
+    my $self = shift;
+    return $self->{_data_};
 }
 
 1;

@@ -4,6 +4,9 @@ use strict;
 use warnings;
 #use diagnostics;
 
+use File::Spec;
+use Cwd;
+
 BEGIN {
     our @ISA         = qw{Exporter};
     our @EXPORT_OK   = (
@@ -36,6 +39,140 @@ sub _tolist (@) {
     grep { defined } map { (ref($_) ? @{$_} : $_) } @_;
 }
 
+my $_rex_split = qr{
+    (?(DEFINE)
+      (?<plain> (?:(?>[^\s\,\"\'\(\)\[\]\{\}\\]+)|\\.)+)
+      (?<slack> (?:(?>[^\"\'\(\)\[\]\{\}\\]+)|\\.)+)
+      (?<inquo> (?:(?>[^\"\(\)\{\}\[\]\\]+)|\\.)+)
+      (?<group_middle>
+        (?: (?&slack)*
+            (?:(?&group)+ (?&slack)*)?
+            (?:(?&quote)+ (?&slack)*)?
+        )+
+      )
+      (?<group_parens> (?:(?>\( (?&group_middle)* \))|\())
+      (?<group_square> (?:(?>\[ (?&group_middle)* \])|\[))
+      (?<group_braces> (?:(?>\{ (?&group_middle)* \})|\{))
+      (?<close> [\)\}\]])
+      (?<group>
+        (?: (?&group_parens)
+          | (?&group_square)
+          | (?&group_braces)
+        )
+      )
+      (?<quote_escape> (?> \\. ))
+      (?<quote_single> (?> \' (?:(?>[^\\']+)|(?>\\')|(?>\\))*  (?:\'|$) ))
+      (?<quote_middle>
+        (?: (?&inquo)*
+            (?:(?&group)+ (?&inquo)*)?
+            (?:(?&close)+ (?&inquo)*)?
+        )+
+      )
+      (?<quote_double> (?> \" (?&quote_middle)* (?:\"|$) ))
+      (?<quote_dollar> (?> \$\' (?:(?>[^\\']+)|(?>\\.)|(?>\\))* (?:\')|$))
+      (?<quote>
+        (?: (?&quote_escape)
+          | (?&quote_single)
+          | (?&quote_double)
+          | (?&quote_dollar)
+        )
+      )
+      (?<split>
+        (?: (?&plain)*
+            (?:(?&group)+ (?&plain)*)?
+            (?:(?&quote)+ (?&plain)*)?
+            (?:(?&close)+ (?&plain)*)?
+        )+
+      )
+    )
+    (?&split)
+}xso;
+
+sub _split (@) {
+    my $istr;
+    my @oarr;
+
+    while (@_) {
+        next if (! ($istr = shift));
+
+        while ($istr ne '') {
+            $istr =~ s{^(?>[\s,]*)($_rex_split)}{}o;
+            push(@oarr, $1);
+        }
+    }
+
+    return @oarr;
+}
+
+sub split (@) {
+    return _split(@_);
+}
+
+my $_rex_chunk = qr{
+    (?(DEFINE)
+      (?<plain> (?:(?>[^\s\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
+      (?<slack> (?:(?>[^\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
+      (?<inquo> (?:(?>[^\"\(\)\{\}\[\]\\]+)|\\.?)+)
+      (?<group_middle>
+        (?: (?&slack)*
+            (?:(?&group)+ (?&slack)*)?
+            (?:(?&quote)+ (?&slack)*)?
+        )+
+      )
+      (?<group_parens> (?:(?>\( (?&group_middle)* \))|\())
+      (?<group_square> (?:(?>\[ (?&group_middle)* \])|\[))
+      (?<group_braces> (?:(?>\{ (?&group_middle)* \})|\{))
+      (?<close> [\)\}\]])
+      (?<group>
+        (?: (?&group_parens)
+          | (?&group_square)
+          | (?&group_braces)
+        )
+      )
+      (?<quote_escape> (?> \\. ))
+      (?<quote_single> (?> \' (?:(?>[^\\']+)|(?>\\')|(?>\\))*  (?:\'|$) ))
+      (?<quote_middle>
+        (?: (?&inquo)*
+            (?:(?&group)+ (?&inquo)*)?
+            (?:(?&close)+ (?&inquo)*)?
+        )+
+      )
+      (?<quote_double> (?> \" (?&quote_middle)* (?:\"|$) ))
+      (?<quote_dollar> (?> \$\' (?:(?>[^\\']+)|(?>\\.)|(?>\\))* (?:\')|$))
+      (?<quote>
+        (?: (?&quote_escape)
+          | (?&quote_single)
+          | (?&quote_double)
+          | (?&quote_dollar)
+        )
+      )
+      (?<chunk>
+        (?: (?&plain)*
+            (?:(?&group)+ (?&plain)*)?
+            (?:(?&quote)+ (?&plain)*)?
+            (?:(?&close)+ (?&plain)*)?
+        )+
+      )
+    )
+    (?&chunk)
+}xso;
+
+sub _chunk (@) {
+    my $istr;
+    my @oarr;
+
+    while (@_) {
+        next if (! ($istr = shift));
+
+        while ($istr ne '') {
+            $istr =~ s{^(?>[\s,]*)($_rex_chunk)}{}o;
+            push(@oarr, $1);
+        }
+    }
+
+    return @oarr;
+}
+
 sub parse ($@) {
     my $opts = shift;
 
@@ -48,7 +185,7 @@ sub parse ($@) {
     my @errs;
     my $type;
 
-    my ($opt, $arg, $aop, $err, $cnt);
+    my ($opt, $arg, $aop, $err, $cnt, $fil, $txt);
 
     foreach $hand (@{$opts}) {
         foreach $flag (_tolist($hand->{flag}, $hand->{flag_hidden})) {
@@ -60,17 +197,34 @@ sub parse ($@) {
     }
 
     while (defined($_ = shift)) {
-        if (! m{^-.+}o) {  # Catch '-' here, too.
-            push(@untk, $_);
-            next;
-        }
-
         if ($_ eq '--') {
             push(@untk, @_);
             last;
         }
 
-        if (m{^--((?:[^:?+=]+|[:?+](?!=))+)(?:([:?+]?=)(.*)?)?}o) {
+        if (m{^\@(.+)$}o) {
+            my $fil = $1;
+            my $dsc;
+print(STDERR __PACKAGE__."::parse(\@...): fil='$fil'\n");
+            if (! File::Spec->file_name_is_absolute($fil)) {
+print(STDERR __PACKAGE__."::parse(): not absolute\n");
+                $fil = File::Spec->catfile(Cwd::cwd(), $fil);
+print(STDERR __PACKAGE__."::parse(): absolutized: '$fil'\n");
+                if (! open($dsc, '<', $fil)) {
+                    push(@errs, "File '$1': $!");
+                    next;
+                } else {
+                    local $/;
+                    $txt = <$dsc>;
+                    close($dsc);
+                }
+print(STDERR __PACKAGE__."::parse(): file text:\n$txt\n");
+my @stuff = _chunk($txt);
+print(STDERR __PACKAGE__."::parse(): new opts: [@stuff]\n");
+                unshift(@_, @stuff);
+print(STDERR __PACKAGE__."::parse(): amended option stream: @_\n");
+            }
+        } elsif (m{^--((?:[^:?+=]+|[:?+](?!=))+)(?:([:?+]?=)(.*)?)?}o) {
             $opt = $1;
             $aop = $2;
             $arg = $3;
@@ -95,7 +249,7 @@ sub parse ($@) {
             if ($cnt = &{$hand->{func}}("--$opt", $aop, $arg, \@_)) {
                 splice(@_, 0, $cnt);
             }
-        } else {
+        } elsif (m{^-}o) {
             while ($_ ne '-') {
                 s{^-(.)(.*)}{-$2}o;
                 $opt = $1;
@@ -129,6 +283,9 @@ sub parse ($@) {
                     shift $cnt;
                 }
             }
+        } else {
+            # Not a special option char, '@' or '-', so pass as untaken.
+            push(@untk, $_);
         }
     }
 
@@ -301,67 +458,6 @@ sub usage ($) {
     }
 
     return @mesg;
-}
-
-my $_rex_split = qr{
-    (?(DEFINE)
-      (?<plain> (?:(?>[^\s\,\"\'\(\)\[\]\{\}\\]+)|\\.)+)
-      (?<slack> (?:(?>[^\"\'\(\)\[\]\{\}\\]+)|\\.)+)
-      (?<inquo> (?:(?>[^\"\(\)\{\}\[\]\\]+)|\\.)+)
-      (?<group_middle>
-        (?: (?&slack)*
-            (?:(?&group)+ (?&slack)*)?
-            (?:(?&quote)+ (?&slack)*)?
-        )+
-      )
-      (?<group_parens> (?:(?>\( (?&group_middle)* \))|\())
-      (?<group_square> (?:(?>\[ (?&group_middle)* \])|\[))
-      (?<group_braces> (?:(?>\{ (?&group_middle)* \})|\{))
-      (?<close> [\)\}\]])
-      (?<group>
-        (?: (?&group_parens)
-          | (?&group_square)
-          | (?&group_braces)
-        )
-      )
-      (?<quote_escape> (?> \\. ))
-      (?<quote_single> (?> \' (?:(?>[^\\']+)|(?>\\')|(?>\\))*  (?:\'|$) ))
-      (?<quote_middle>
-        (?: (?&inquo)*
-            (?:(?&group)+ (?&inquo)*)?
-            (?:(?&close)+ (?&inquo)*)?
-        )+
-      )
-      (?<quote_double> (?> \" (?&quote_middle)* (?:\"|$) ))
-      (?<quote_dollar> (?> \$\' (?:(?>[^\\']+)|(?>\\.)|(?>\\))* (?:\')|$))
-      (?<quote>
-        (?: (?&quote_escape)
-          | (?&quote_single)
-          | (?&quote_double)
-          | (?&quote_dollar)
-        )
-      )
-      (?<chunk>
-        (?: (?&plain)*
-            (?:(?&group)+ (?&plain)*)?
-            (?:(?&quote)+ (?&plain)*)?
-            (?:(?&close)+ (?&plain)*)?
-        )+
-      )
-    )
-    (?&chunk)
-}xo;
-
-sub split ($) {
-    my $istr = shift;
-    my @oarr;
-
-    while ($istr ne '') {
-        $istr =~ s{^(?>[\s,]*)($_rex_split)}{}o;
-        push(@oarr, $1);
-    }
-
-    return @oarr;
 }
 
 1;

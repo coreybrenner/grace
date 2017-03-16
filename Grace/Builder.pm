@@ -7,15 +7,12 @@ sub setenv ($$$) {
     } else {
         $ENV{$var} = $val;
     }
+    return $self;
 }
 
 sub getenv ($$) {
     my ($self, $var) = @_;
-    if (defined($var)) {
-        return $ENV{$var};
-    } else {
-        return %ENV;
-    }
+    return (defined($var) ? $ENV{$var} : %ENV);
 }
 
 sub new {

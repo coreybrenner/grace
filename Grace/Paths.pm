@@ -142,9 +142,10 @@ sub exists_below ($@) {
         }
         next if (! defined($look = Cwd::realpath($look)));
         if (("$look/" =~ m{^$root/+(.*[^/])?/*$}) && -e $look) {
-            $rslt{$path} = $1;
+            $rslt{$path} = ($1 || File::Spec->curdir());
         }
     }
+
     return %rslt;
 }
 

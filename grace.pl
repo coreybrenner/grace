@@ -6,26 +6,23 @@
 # to configurations on multiple Grace builders bound to a common scheduler.
 #
 
-use Cwd;
+use Cwd            qw{realpath};
 use File::Spec;
 use Data::Dumper;
 
-use Grace::Options           qw{:OPT_};
-use Grace::Utility           qw{unique printdef};
+use Grace::Options qw{:OPT_};
+use Grace::Utility qw{unique printdef};
 use Grace::Paths;
-use Grace::Config::Systems;
-#use Grace::Config::Toolset;
-#use Grace::Config::Environ;
-#use Grace::Config::Variant;
+use Grace::Builder::Grace;
 
-my  $program        = (File::Spec->splitpath($0))[2];
+my ($program)       = ((File::Spec->splitpath($0))[2] =~ m{^([^.]+)\..*$}o);
 my  $version        = '0.0';
 my  $cfgfile        = 'Graceconf';
 my  $prjfile        = 'Graceproj';
 my  $optfile        = 'Graceopts';
 my  $outroot        = 'out';
 my  $pubroot        = 'pub';
-my  $verbose        = '';
+my  $verbose        = 0;
 my  $systems_config = 'systems.cfg';
 my  $systems        = 'default';
 my  $variant_config = 'variant.cfg';
@@ -89,7 +86,7 @@ my  $show_toolenv  = 0;
 #
 # grace.pl \
 #   --srcroot foo=/src/abc     --srcroot bar=/src/def \
-#   --sysconf foo=mac_x86-32   --sysconf bar=linux_x86-64,win_x86-64 \
+#   --systems foo=mac_x86-32   --systems bar=linux_x86-64,win_x86-64 \
 #   --toolset foo=xcode-8.1    --toolset bar/linux_x86-64=gcc-6.2 \
 #   --instrum foo=debug        --instrum bar=release \
 #   --product foo=desktop      --product bar=auto,acr,gninternal \
@@ -114,7 +111,7 @@ my %aliases = (
     rel      => 'relpath',
     out      => 'outroot',
     pub      => 'pubroot',
-    platform => 'sysconf',
+    platform => 'systems',
 );
     
 my @options = (
@@ -151,7 +148,7 @@ my @options = (
         args        => '[PROJ=]PATH...',
         help        => 'Search these dirs for build configuration',
     }, {
-        long        => [ 'sysconf', 'sys', ],
+        long        => [ 'systems', 'sys', ],
         long_hidden => 'platform',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
@@ -161,26 +158,26 @@ my @options = (
         long        => 'variant',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
-        args        => [ '[[PROJ/]TYPE=]NAME...', '[PROJ/]NAME...' ],
+        args        => [ '[[PROJ::]TYPE=]NAME...', '[PROJ::]NAME...' ],
         help        => 'Restrict build product variants',
     }, {
         long        => 'verbose',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
-        args        => [ '[PROJ/]PART=LEVEL', '[PROJ/]PART...' ],
+        args        => [ '[PROJ::]PART=LEVEL', '[PROJ::]PART...' ],
         help        => 'Restrict build product variants',
     }, {
         long        => 'toolset',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
-        args        => [ '[[PROJ/]ARCH=]TOOL...', '[PROJ/]TOOL...' ],
+        args        => [ '[[PROJ::]ARCH=]TOOL...', '[PROJ::]TOOL...' ],
         help        => 'Force use of toolset TOOL for platform ARCH',
     }, {
         long        => 'version',
         type        => OPT_UNWANTED,
         func        => \&_opt_vers,
         help        => 'Print version string',
-   }, {
+    }, {
         long        => [ 'keep-going', 'no-keep-going' ],
         type        => OPT_ATTACHED,
         func        => \&_opt_flag,
@@ -199,7 +196,7 @@ my @options = (
         type        => OPT_OPTIONAL,
         func        => \&_opt_load,
         args        => 'X.Y',
-        help        => 'Start jobs when load average below X.Y (no arg => unset)',
+        help      => 'Start jobs when load average below X.Y (no arg => unset)',
     }, {
         long        => 'nice',
         flag        => 'n',
@@ -218,13 +215,13 @@ my @options = (
         long        => 'setvar',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
-        args        => '[PROJ/]NAME=DATA',
+        args        => '[PROJ::]NAME=DATA',
         help        => 'Set a build (not environment) variable',
     }, {
         long        => 'setenv',
         type        => OPT_REQUIRED,
         func        => \&_opt_vars,
-        args        => '[PROJ/]NAME=DATA',
+        args        => '[PROJ::]NAME=DATA',
         help        => 'Set an environment (not build) variable',
     }, {
         long        => 'toolset-config',
@@ -314,7 +311,7 @@ my @options = (
         long        => 'search-alias',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
-        args        => '[PROJ/]NAME=PROJ',
+        args        => '[PROJ::]NAME=PROJ',
         help        => 'Set project alias for resolving target searches',
     }, {
         long        => 'search-order',
@@ -326,7 +323,7 @@ my @options = (
         long        => 'search-group',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
-        args        => '[PROJ/]NAME=PROJ...',
+        args        => '[PROJ::]NAME=PROJ...',
         help        => 'Cluster projects together in search order',
     }, {
         long        => 'overlay',
@@ -361,6 +358,14 @@ sub _match ($$) {
     }
 }
 
+sub _debug ($@) {
+    my ($lvl, @msg) = @_;
+
+    if ($lvl && ($lvl >= $verbose)) {
+        print(map { "[DBG] $program: $_\n" } @msg);
+    }
+}
+
 sub _opt_help ($$$$) {
     $showhlp = 1;
     return 0;
@@ -380,7 +385,7 @@ sub _opt_jobs ($$$$) {
         return 0;
     } elsif (! $aop) {
         # --jobs something-that-might-be-relevant
-        $arg = $vec->[0]
+        $arg = $vec->[0];
     }
     if (defined(my $val = _match($arg, $_rex_int))) {
         if (($val = int($val)) <= 0) {
@@ -443,19 +448,19 @@ sub _opt_flag ($$$$) {
     my ($opt, $aop, $arg, $vec) = @_;
 
     my ($not, $nam) = ($opt =~ m{^(?:--?)?(no-)?(.+)$}o);
-    $not = ($not ? 1 : 0);
+    $not = !! $not;
 
     if ($aliases{$nam}) {
         $nam = $aliases{$nam};
     }
 
-    my @prj = Grace::Options::split($arg || '');
-    if (! @prj) {
-        @prj = ('');
+    my @cfg = Grace::Options::split($arg || '');
+    if (! @cfg) {
+        @cfg = ( '' );
     }
 
-    foreach (@prj) {
-        push(@{$options{$_}{$nam}}, [ '=', ! $not ]);
+    foreach (@cfg) {
+        push(@{$options{$_}{$nam}}, [ '=', $not ]);
     }
 
     return ($aop ? 0 : (defined($arg) ? 1 : 0));
@@ -470,11 +475,16 @@ sub _opt_list ($$$$) {
         $nam = $aliases{$nam};
     }
 
+    my  @cfg;
     my ($cfg, $Aop, $val) =
-        ($arg =~ m{^(?:((?:(?>[^:?+=]+)|(?>[:?+](?!=)))+)?([:?+]?=))?(.*)$}o);
-    if (! defined($cfg)) {
-        $cfg = '';
+        ($arg =~ m{^(?:((?>[^:?+=]+)|(?>[:?+](?!=))+)([:?+]?=))?(.*)$}o);
+
+    if ($cfg) {
+        @cfg = Grace::Options::split($cfg);
+    } else {
+        @cfg = ( '' );
     }
+
     if (! defined($Aop)) {
         $Aop = '+=';
     }
@@ -482,13 +492,15 @@ sub _opt_list ($$$$) {
     my @val = Grace::Options::split($val || '');
     my $tbl;
 
-    $tbl = ($options{$cfg} || ($options{$cfg} = {}));
+    foreach $cfg (@cfg) {
+        $tbl = ($options{$cfg} || ($options{$cfg} = {}));
 
-    if (($Aop ne '?=') || ! defined($tbl->{$nam})) {
-        if ($Aop eq '+=') {
-            push(@{$tbl->{$nam}}, [ '+', @val ]);
-        } else {
-            push(@{$tbl->{$nam}}, [ '=', @val ]);
+        if (($Aop ne '?=') || ! defined($tbl->{$nam})) {
+            if ($Aop eq '+=') {
+                push(@{$tbl->{$nam}}, [ '+', @val ]);
+            } else {
+                push(@{$tbl->{$nam}}, [ '=', @val ]);
+            }
         }
     }
 
@@ -505,7 +517,7 @@ sub __opt_dist (@) {
 
     my ($cfg, $key, $Aop, $val);
 
-    ($cfg, $arg) = ($arg =~ m{^(?:((?:[^:?+=/]+|[:?+](?!=))+)?/)?(.+)$}o);
+    ($cfg, $arg) = ($arg =~ m{^(?:((?:[^:?+=]+|[:?+](?![:=]))+)?::)?(.+)$}o);
 
     ($key, $Aop, $val) =
         ($arg =~ m{^(?:((?:[^:?+=]+|[:?+](?!=))+)?([:?+]?=))?(.*)$}o);
@@ -518,9 +530,14 @@ sub __opt_dist (@) {
         _error($msg);
         return 0;
     }
-    if (! $cfg) {
-        $cfg = '';
+
+    my @cfg;
+    if ($cfg) {
+        @cfg = Grace::Options::split($cfg);
+    } else {
+        @cfg = ( '' );
     }
+
     if (! $key) {
         $Aop = '+=';
         $key = '';
@@ -531,14 +548,16 @@ sub __opt_dist (@) {
     my @val = &{$fun}(defined($val) ? $val : '');
     my $tbl;
 
-    $tbl = ($options{$cfg} || ($options{$cfg} = {}));
+    foreach $cfg (@cfg) {
+        $tbl = ($options{$cfg} || ($options{$cfg} = {}));
 
-    foreach $key (@key) {
-        if (($Aop ne '?=') || ! defined($tbl->{$nam}->{$key})) {
-            if ($Aop eq '+=') {
-                push(@{$tbl->{$nam}->{$key}}, [ '+', @val ]);
-            } else {
-                push(@{$tbl->{$nam}->{$key}}, [ '=', @val ]);
+        foreach $key (@key) {
+            if (($Aop ne '?=') || ! defined($tbl->{$nam}->{$key})) {
+                if ($Aop eq '+=') {
+                    push(@{$tbl->{$nam}->{$key}}, [ '+', @val ]);
+                } else {
+                    push(@{$tbl->{$nam}->{$key}}, [ '=', @val ]);
+                }
             }
         }
     }
@@ -560,27 +579,123 @@ sub _opt_vars ($$$$) {
     return __opt_dist(@_, \&_split_variable);
 }
 
+#
+# resolve_verbose():
+#
+# Distribute verbosity settings to build configurations.  This is called
+# right after command options are read and distributed.  This begins the
+# effort to comprehend what those settings mean.
+#
+# # 'foo', 'bar', and 'baz' parts from every configuration will debug.
+# --verbose foo            --> (global) foo=1
+# --verbose foo,bar,baz    --> (global) foo=1, bar=1, baz=1
+# --verbose foo=2,3,4      --> (global) foo=4
+# --verbose foo,bar=0      --> (global) foo=0, bar=0
+#
+# # 'foo', 'bar', and 'baz' parts only from config 'cfg' will debug.
+# --verbose cfg::foo,bar   --> (scoped) cfg::bar=1, cfg::baz=1
+# --verbose cfg::bar,baz=3 --> (scoped) cfg::bar=3, cfg::baz=3
+#
+# # named configs inherit global config.
+# --verbose=foo --verbose cfg::bar=3  --> cfg::foo=1, cfg::bar=3
+#
+sub resolve_verbose () {
+    my (%cfg, $cfg, @sub, $sub, $lev);
+
+    # --verbose=? --> --verbose foo=1
+    @sub = @{ ($options{''}{verbose}{''} || []) };
+    @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+    foreach $sub (@sub) {
+        if ($sub =~ m{^[+-]?\d+$}o) {
+            $cfg{''}{$program} = int($sub);
+        } else {
+            $cfg{''}{$sub}     = 1;
+        }
+    }
+
+    # --verbose foo=?
+    while (($sub, $lev) = each(%{$options{''}{verbose}})) {
+        next if (! $sub);
+        # Last setting wins.
+        $cfg{''}{$sub} = $lev->[-1]->[-1];
+    }
+
+    foreach $cfg (grep { $_ } keys(%options)) {
+        # --verbose cfg::foo...
+        @sub = @{ ($options{$cfg}{verbose}{''} || []) };
+        @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+        $cfg{$cfg} = { %{ $cfg{''} || {} } };
+        foreach $sub (@sub) {
+            if (! defined($cfg{$cfg}{$sub})) {
+                $cfg{$cfg}{$sub} = 1;
+            }
+        }
+
+        # --verbose cfg::foo=?
+        while (($sub, $lev) = each(%{$options{$cfg}{verbose}})) {
+            next if (! $sub);
+            # Last setting wins.
+            $cfg{$cfg}{$sub} = $lev->[-1]->[-1];
+        }
+    }
+
+    foreach $cfg (keys(%options)) {
+        $configs{$cfg}{verbose} = $cfg{$cfg};
+    }
+
+    $verbose = ($configs{''}{verbose}{$program} || 0);
+}
+
+#
+# resolve_srcroot():
+#
+# Determine whether a build should look for sources in a different directory
+# than the one which would otherwise be automatically determined, based upon
+# the current directory at the time of the issuance of the command.  If no
+# paths are given, tries to locate the root of the source tree at or above
+# the current directory.  Failing that, defaults to the current directory.
+#
+# --srcroot='/tmp/foo /tmp/bar' --> (global) srcroot=[ /tmp/foo, /tmp/bar ]
+# --srcroot cfg=/tmp/baz        --> (scoped) cfg::srcroot=[ /tmp/baz ]
+#
+# --srcroot=/tmp/foo --srcroot cfg=/tmp/bar
+#       --> All named configs which do not have their own srcroot settings
+#           inherit the global settings.
+#
 sub resolve_srcroot () {
     my (%dir, @dir, $dir);
     my (@top, $top, $cfg);
     my (%fil, $fil);
     my $vol;
-    my $cwd = Cwd::cwd();
+    my $cwd = Cwd::realpath(Cwd::cwd());
+
+    _debug(2, "SRCROOT: Current directory: '$cwd'");
 
     # Determine whether any source roots were mentioned on the command line.
     if (defined($dir = $options{''}{srcroot})) {
         @dir = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
         foreach $dir (@dir) {
+            _debug(2, "SRCROOT: --srcroot='$dir'");
             if (! File::Spec->file_name_is_absolute($dir)) {
                 $dir = File::Spec->catdir($cwd, $dir);
             }
-            push(@top, Cwd::realpath($dir));
+            $dir = Cwd::realpath($dir);
+            push(@top, $dir);
+            _debug(2, "SRCROOT: Add srcroot '$dir'");
         }
         @top = unique(@top);
     }
 
-    if (! @top) {
+    if (@top) {
+        _debug(1, "SRCROOT: Configured globally: [ @top ]");
+    } else {
+        _debug(2, "SRCROOT: No configured global srcroots; scan up");
+        _debug(2, "SRCROOT: Seek highest '$cfgfile' and '$prjfile'");
+
         my %cfg = Grace::Paths::find_highest($cwd, $cfgfile, $prjfile);
+        foreach (keys(%cfg)) {
+            _debug(2, "SRCROOT: Found '$_' at '$cfg{$_}'");
+        }
         foreach $dir (values(%cfg)) {
             ($vol, $dir, undef) = File::Spec->splitpath($dir);
             $dir = File::Spec->catpath($vol, $dir, '');
@@ -591,49 +706,92 @@ sub resolve_srcroot () {
         if (! defined($top)) {
             $top = $cwd;
         }
+        $top = File::Spec->canonpath($top);
+        @top = ( $top );
 
-        @top = ( Cwd::realpath($top) );
+        _debug(1, "SRCROOT: Found root dir '$top'");
     }
 
     $configs{''}{srcroot} = \@top;
 
     foreach $cfg (grep { $_ } keys(%options)) {
+        _debug(2, "SRCROOT: Named configuration '$cfg'");
+
         if (! defined($dir = $options{$cfg}{srcroot})) {
-            $configs{$cfg}{srcroot} = $configs{''}{srcroot};
+            _debug(2, "SRCROOT: No configured srcroots for '$cfg'");
+            _debug(2, "SRCROOT: Inherit global srcroots");
+            $configs{$cfg}{srcroot} = \@top;
         } else {
+            @dir = (@dir, map { my @arr = @{$_}; splice(@arr, 1) } @{$dir});
             my @sub;
-            @dir = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
-            foreach $dir (@dir) {
-                if (! File::Spec->file_name_is_absolute($dir)) {
-                    $dir = File::Spec->catdir($cwd, $dir);
+            foreach my $raw (@dir) {
+                _debug(2, "SRCROOT: --srcroot $cfg='$raw'");
+                if (! File::Spec->file_name_is_absolute($raw)) {
+                    $dir = File::Spec->catdir($cwd, $raw);
+                } else {
+                    $dir = $raw;
                 }
-                push(@sub, Cwd::realpath($dir));
+                if (! defined($dir = Cwd::realpath($dir)) || ! -d $dir) {
+                    _error("--srcroot: File '$raw': $!");
+                    next;
+                }
+                _debug(2, "SRCROOT: Add srcroot '$dir' for '$cfg'");
+                push(@sub, $dir);
             }
-            @sub = unique(@sub);
+            # If explicitly configured, force dirs into named config.
+            @dir = ($options{''}{srcroot} ? @top : ());
+            @sub = unique(@dir, @sub);
             $configs{$cfg}{srcroot} = \@sub;
         }
+        _debug(2, "SRCROOT: $cfg source roots: [@{$configs{$cfg}{srcroot}}]");
     }
 }
 
+#
+# resolve_relpath():
+#
+# Determine whether a relative path within a source tree was specified or,
+# if a build is started from within a source tree, at what relative path
+# the build was started from.  This will allow us to restrict the targets
+# built to the subset that a developer would find most intuitive.  A
+# production build of a full tree would likely be providing all the path
+# particulars, anyway, and may be started from outside the source tree.
+#
+# --relpath foo/bar
+# --relpath cfg=foo/baz,oof/zab
+#
 sub resolve_relpath () {
     my (@rel, $rel);
     my (@dir, $dir);
-    my (%top, @top, $top);
-    my $cfg;
+    my (%top, $top);
+    my (%cfg, $cfg);
 
     my $cwd = Cwd::realpath(Cwd::cwd());
 
+    _debug(1, "RELPATH: Current directory: '$cwd'");
     if (defined($dir = $options{''}{relpath})) {
-        @top = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
+        @rel = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
+        _debug(2, "RELPATH: Configured global relpaths: [ @rel ]");
     } else {
-        @top = ( $cwd );
+        @rel = ( $cwd );
+        _debug(2, "RELPATH: No configured global relpaths: use '$cwd'");
     }
 
+    $cfg{''} = \@rel;
+
     foreach $cfg (keys(%configs)) {
+        if ($cfg) {
+            _debug(2, "RELPATH: Named configuration '$cfg'");
+        } else {
+            _debug(2, "RELPATH: Global configuration");
+        }
+
         if (defined($dir = $options{$cfg}{relpath})) {
             @dir = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
+            _debug(2, "RELPATH: Relative paths for '$cfg': [ @dir ]");
         } else {
-            @dir = @top;
+            @dir = @rel;
+            _debug(2, "RELPATH: No configured relative paths; inherit global");
         }
 
         foreach $top (@{$configs{$cfg}{srcroot}}) {
@@ -642,6 +800,7 @@ sub resolve_relpath () {
             if (! @arr) {
                 @arr = ( File::Spec->curdir() );
             }
+            _debug(2, "RELPATH: Inside '$top':", map { "RELPATH: '$_'" } @arr);
             $configs{$cfg}{relpath}{$top} = \@arr;
         }
     }
@@ -739,10 +898,10 @@ sub resolve_systems () {
     my ($arr, $aop);
 
     # Build default systems list.
-    if (! defined($sys = $options{''}{sysconf})) {
+    if (! defined($sys = $options{''}{systems})) {
         @def = ( $systems );
     } else {
-        # --sysconf=sys...
+        # --systems=sys...
         foreach $arr (@{$sys}) {
             $aop = shift(@{$arr});
             if ($aop eq '+') {
@@ -756,7 +915,7 @@ sub resolve_systems () {
 
     # Create system config list for named configurations.
     foreach $cfg (keys(%configs)) {
-        if (! defined($sys = $options{$cfg}{sysconf})) {
+        if (! defined($sys = $options{$cfg}{systems})) {
             @sys = @def;
         } else {
             @sys = ();
@@ -769,7 +928,7 @@ sub resolve_systems () {
                 }
             }
         }
-        $configs{$cfg}{sysconf} = [ unique(@sys) ];
+        $configs{$cfg}{systems} = [ unique(@sys) ];
     }
 }
 
@@ -780,9 +939,8 @@ sub resolve_toolset () {
     # --toolset thistree/java-1.7 --toolset thattree/java-1.9
     # --toolset thistree/mac_x86-64=gcc --toolset thattree/mac_x86-64=clang
 
-    my %cfg;
-    my @set;
-    my $set;
+    my (%cfg, $cfg);
+    my (@set, $set);
 
     # --toolset val...
     if (defined($set = $options{''}{toolset}{''})) {
@@ -807,15 +965,15 @@ sub resolve_toolset () {
         if (defined($set = $options{$cfg}{toolset}{''})) {
             @set = map { my @arr = @{$_}; splice(@arr, 1) } @{$set};
         }
-        # Merge in root config's sysconf-less toolset list.
+        # Merge in root config's systems-less toolset list.
         @set = unique(@{$cfg{''}}, @set);
         $cfg{$cfg} = \@set;
 
-        # --sysconf sys...
-        # --sysconf cfg=sys...
+        # --systems sys...
+        # --systems cfg=sys...
         # ...
         # --toolset cfg/sys=val...
-        foreach $sys (keys(%{$configs{$cfg}{sysconf}})) {
+        foreach $sys (keys(%{ $options{$cfg}{systems} || {} })) {
             @set = ();
             if (defined($set = $options{$cfg}{toolset}{$sys})) {
                 @set = map { my @arr = @{$_}; splice(@arr, 1) } @{$set};
@@ -832,7 +990,7 @@ sub resolve_toolset () {
     foreach $cfg (keys(%configs)) {
         while (($top, $tbl) = each(%{$configs{$cfg}{toolset_config_dict}})) {
             while (($sys, $set) = each(%{$sys{$cfg}})) {
-                next if (! $configs{$cfg}{sysconf}{$sys}{$top});
+                next if (! $configs{$cfg}{systems}{$sys}{$top});
                 %set = ();
                 foreach (@{$set}) {
                     if ($sub = $tbl->get($_)) {
@@ -1040,7 +1198,7 @@ sub resolve_variant () {
 
     # --variant cfg/dim=var...
     foreach $cfg (grep { $_ } keys(%configs)) {
-        %tbl = (%{$dim{''}}, %{ ($options{$cfg}{variant} || {}) });
+        %tbl = (%{ $dim{''} || {} }, %{ ($options{$cfg}{variant} || {}) });
         while (($dim, $var) = each(%tbl)) {
             next if (! $dim);
             my @var = ();
@@ -1142,46 +1300,6 @@ sub resolve_lookups () {
     }
 }
 
-sub resolve_verbose () {
-    my (%cfg, $cfg, @sub, $sub, $lev);
-
-    # --verbose=foo --> --verbose foo=1
-    @sub = @{ ($options{''}{verbose}{''} || []) };
-    @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
-    foreach $sub (@sub) {
-        $cfg{''}{$sub} = 1;
-    }
-
-    # --verbose foo=?
-    while (($sub, $lev) = each(%{$options{''}{verbose}})) {
-        # Last setting wins.
-        $cfg{''}{$sub} = $lev->[-1]->[-1];
-    }
-
-    foreach $cfg (grep { $_ } keys(%configs)) {
-        # --verbose cfg/foo...
-        @sub = @{ ($options{$cfg}{verbose}{''} || []) };
-        @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
-        $cfg{$cfg} = { %{ $cfg{''} || {} } };
-        foreach $sub (@sub) {
-            if (! defined($cfg{$cfg}{$sub})) {
-                $cfg{$cfg}{$sub} = 1;
-            }
-        }
-
-        # --verbose cfg/foo=?
-        while (($sub, $lev) = each(%{$options{$cfg}{verbose}})) {
-            next if (! $sub);
-            # Last setting wins.
-            $cfg{$cfg}{$sub} = $lev->[-1]->[-1];
-        }
-    }
-
-    foreach $cfg (keys(%configs)) {
-        $configs{$cfg}{verbose} = $cfg{$cfg};
-    }
-}
-
 sub resolve_overlay () {
     my ($cfg, $ovl, @ovl);
 
@@ -1204,6 +1322,7 @@ sub _resolve_config (%) {
     my (@fil, $fil);
     my $cfg;
 
+print(STDERR "_resolve_config(): ".Dumper(\%setup));
     my $cwd = Cwd::realpath(Cwd::cwd());
 
     if (! defined($fil = $options{''}{$setup{key}})) {
@@ -1241,20 +1360,20 @@ sub _resolve_config (%) {
         }
 
         foreach $top (@{$configs{$cfg}{srcroot}}) {
-            foreach $fil (@fil) {
+            FILE: foreach $fil (@fil) {
                 if (! File::Spec->file_name_is_absolute($fil)) {
                     # This happens when no --systems-config=... is given,
                     # and the default has fallen through.  Look for a
                     # systems config file in the root of each source tree,
                     # which can apply to that build.
-                    $fil = File::Spec->catdir($top, $fil);
-                    if (! -f $fil || ! -r $fil) {
-                        _error("$setup{msg} '$fil': $!");
-                        next;
+                    foreach $dir (@{$configs{$cfg}{include}}, $top) {
+                        my $tst = File::Spec->catdir($dir, $fil);
+                        next if (! -f $tst || ! -r $tst);
+                        $tst = Cwd::realpath($tst);
+                        push(@{$configs{$cfg}{$setup{fil}}{$top}}, $tst);
+                        next FILE;
                     }
-                    $fil = Cwd::realpath($fil);
                 }
-                push(@{$configs{$cfg}{$setup{fil}}{$top}}, $fil);
             }
         }
     }
@@ -1330,6 +1449,7 @@ sub parse_options (@) {
         }
     }
 
+    resolve_verbose();
     resolve_srcroot();
     resolve_relpath();
     resolve_outroot();
@@ -1344,7 +1464,6 @@ sub parse_options (@) {
     resolve_setvars();
     resolve_targets();
     resolve_lookups();
-    resolve_verbose();
     resolve_systems_config();
     resolve_toolset_config();
     resolve_environ_config();
@@ -1378,7 +1497,7 @@ sub parse_options (@) {
 }
 
 sub create_builders () {
-    my (%cfg, @cfg, $cfg, $dir, %bld, $bld);
+    my (%cfg, @cfg, $cfg, $dir, %bld);
 
     if (! (@cfg = grep { $_ } keys(%configs))) {
         @cfg = keys(%configs);
@@ -1398,19 +1517,20 @@ sub create_builders () {
                 toolset_config_file =>
                     $configs{$cfg}{toolset_config_file}{$dir},
                 environ_config_file =>
-                    $configs{$cfg}{toolset_config_file}{$dir},
+                    $configs{$cfg}{environ_config_file}{$dir},
                 variant_config_file =>
                     $configs{$cfg}{variant_config_file}{$dir},
             );
 
-            $bld = Grace::Builder::Grace->new(%cfg);
-
-            $bld{$cfg}{$dir} = $bld;
+            $bld{$cfg}{$dir} = Grace::Builder::Grace->new(%cfg);
         }
     }
+
+    return %bld;
 }
 
 parse_options(@ARGV);
+create_builders();
 
 print(Dumper([ 'OPTIONS', \%options ],
              [ 'CONFIGS', \%configs ])); 

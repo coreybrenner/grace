@@ -86,6 +86,7 @@ sub activate ($) {
     my %data;
 
     tie(%data, __PACKAGE__.'::Hash', $data);
+print(STDERR __PACKAGE__."::activate(): DATA: ".Dumper(\%data));
 
     return \%data;
 }
