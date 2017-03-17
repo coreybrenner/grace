@@ -1057,33 +1057,40 @@ sub resolve_toolset () {
 sub _resolve_cmdflg (%) {
     my %setup = @_;
 
+    my $fun = uc($setup{var});
+
     my (@key, $key, $var, $dfl, $cfg, $val);
 
     $configs{''}{$setup{var}} = $setup{dfl};
+    _debug(1, "$fun: Default value: " . printdef($configs{''}{$setup{var}}));
 
     @key = ((ref($setup{key}) && (ref($setup{key}) eq 'ARRAY'))
             ? @{$setup{key}}
             : ( $setup{key} ));
+    _debug(1, "$fun: Keys [ @key ]");
 
     foreach $key (@key) {
         $val = ($key !~ m{^no-}o);
+        _debug(1, "$fun: Key '$key' --> Val: '$val'");
         if (defined($options{''}{$key})) {
             $configs{''}{$setup{var}} = $val;
         }
     }
 
     foreach $cfg (grep { $_ } keys(%configs)) {
+        _debug(1, "$fun: Flag named config '$cfg'");
+
         foreach $key (@key) {
             # Stow default value, ascertained above.
             $configs{$cfg}{$setup{var}} = $configs{''}{$setup{var}};
 
+            next if (! defined($options{$cfg}{$key}));
+
             # Set true or set false?
             $val = ($key !~ m{^no-}o);
+            _debug(1, "$fun: --$key $cfg=$val") ;
 
-            # If set in a named configuration, record that value.
-            if (defined($options{$cfg}{$key})) {
-                $configs{$cfg}{$setup{var}} = $val;
-            }
+            $configs{$cfg}{$setup{var}} = $val;
         }
     }
 }
