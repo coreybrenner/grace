@@ -30,6 +30,7 @@ my  $variant        = 'debug';
 my  $toolset_config = 'toolset.cfg';
 my  $toolset        = 'common';
 my  $environ_config = 'environ.cfg';
+my  @include        = ();
 
 # Basic default variant set.  Customized in variant.cfg for complex builds.
 my  %variant = (
@@ -101,6 +102,7 @@ sub _opt_vers ($$$$);
 sub _opt_jobs ($$$$);
 sub _opt_load ($$$$);
 sub _opt_nice ($$$$);
+sub _opt_incl ($$$$);
 sub _opt_flag ($$$$);
 sub _opt_list ($$$$);
 sub _opt_dict ($$$$);
@@ -116,39 +118,39 @@ my %aliases = (
     
 my @options = (
     {
-        long        => [ 'srcroot', 'src', ],
+        long        => [ 'srcroot', 'src' ],
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]PATH',
         help        => 'Add a source tree pointed to by its root',
     }, {
-        long        => [ 'relpath', 'rel', ],
+        long        => [ 'relpath', 'rel' ],
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]PATH',
         help        => 'Build targets under a relative path',
     }, {
-        long        => [ 'outroot', 'out', ],
+        long        => [ 'outroot', 'out' ],
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]PATH',
         help        => 'Store generated sources, artifacts in this tree',
     }, {
-        long        => [ 'pubroot', 'pub', ],
+        long        => [ 'pubroot', 'pub' ],
         long_hidden => 'publish',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
         args        => '[PROJ=]PATH',
         help        => 'Publish packages to this directory tree',
     }, {
-        long        => 'include-dir',
+        long        => 'include',
         flag        => 'I',
         type        => OPT_REQUIRED,
-        func        => \&_opt_list,
-        args        => '[PROJ=]PATH...',
+        func        => \&_opt_incl,
+        args        => 'PATH...',
         help        => 'Search these dirs for build configuration',
     }, {
-        long        => [ 'systems', 'sys', ],
+        long        => [ 'systems', 'sys' ],
         long_hidden => 'platform',
         type        => OPT_REQUIRED,
         func        => \&_opt_list,
@@ -334,9 +336,10 @@ my @options = (
     },
 );
 
-my $_rex_int = qr{[+-]?\d+};
-my $_rex_pos = qr{[+]?\d+};
-my $_rex_flo = qr{[+-]?(?:\d*\.\d+|\d+(?:\.\d+))(?:[Ee][+-]?\d+)?};
+my $_rex_int = qr{[+-]?\d+}o;
+my $_rex_pos = qr{[+]?\d+}o;
+my $_rex_flo = qr{[+]?(?:\d*\.\d+|\d+(?:\.\d+))(?:[Ee][+-]?\d+)?}o;
+my $_rex_opt = qr{(?:(?>[^:?+=\\]+)|(?>[:?+](?!=))|\\.)+[:?+]?=}o;
 
 sub _error (@) {
     push(@errlist, @_);
@@ -378,21 +381,18 @@ sub _opt_vers ($$$$) {
 
 sub _opt_jobs ($$$$) {
     my ($opt, $aop, $arg, $vec) = @_;
+
     if (! defined($arg)) {
         # --jobs= or --jobs <end-of-args>
-        $loadavg = undef;
+        $numjobs = undef;
         # Consume no args.
         return 0;
     } elsif (! $aop) {
         # --jobs something-that-might-be-relevant
         $arg = $vec->[0];
     }
-    if (defined(my $val = _match($arg, $_rex_int))) {
-        if (($val = int($val)) <= 0) {
-            _error("Option '$opt': Value must be > 0");
-        } else {
-            $numjobs = $val;
-        }
+    if (defined(my $val = _match($arg, $_rex_pos))) {
+        $numjobs = $val;
         return ($aop ? 0 : 1);
     } elsif ($aop) {
         _error("Option '$opt': Argument must be integer");
@@ -442,6 +442,22 @@ sub _opt_nice ($$$$) {
         _error("Option '$opt': Argument must be integer");
     }
     return 0;
+}
+
+sub _opt_incl ($$$$) {
+    my ($opt, $aop, $arg, $vec) = @_;
+
+printf(STDERR "_opt_incl(opt=%s, aop=%s, arg=%s, ...)\n",printdef($opt),printdef($aop),printdef($arg));
+    if (m{^$_rex_opt}o) {
+print(STDERR "_opt_incl(): Scoped arg '$arg'\n");
+        _error("Option '$opt': Cannot be scoped");
+    } else {
+print(STDERR "_opt_incl(): Unscoped arg '$arg'\n");
+        push(@include, Grace::Options::split($arg));
+    }
+
+print(STDERR "_opt_incl(): return ".($aop ? 0 : 1)."\n");
+    return ($aop ? 0 : 1);
 }
 
 sub _opt_flag ($$$$) {
@@ -895,33 +911,27 @@ sub resolve_pubroot () {
 }
 
 sub resolve_include () {
-    # --include-dir dir...
-    my ($inc, @inc, @def, $cfg);
+    # --include dir...
+    my (@inc, $inc, $raw);
 
-    if (defined($inc = $options{''}{'include-dir'})) {
-        @def = ();
-        foreach $inc (map { my @arr = @{$_}; splice(@arr, 1) } @{$inc}) {
-            if (! File::Spec->file_name_is_absolute($inc)) {
-                $inc = File::Spec->catdir(Cwd::cwd(), $inc);
-            }
-            push(@def, Cwd::realpath($inc));
+    my $cwd = Cwd::realpath(Cwd::cwd());
+    _debug(1, "INCLUDE: Current directory: '$cwd'");
+
+    foreach $raw (@include) {
+        _debug(2, "INCLUDE: Inspect '$raw'");
+        if (! File::Spec->file_name_is_absolute($raw)) {
+            $inc = File::Spec->catdir($cwd, $raw);
+            _debug(2, "INCLUDE: Not absolute");
         }
-        $configs{''}{include} = \@def;
+        _debug(2, "INCLUDE: Look for '$inc' to exist");
+        if (! defined($inc = Cwd::realpath($inc)) || ! -d $inc) {
+            _debug(2, "INCLUDE: Path '$raw': $!");
+        } else {
+            push(@inc, $inc);
+        }
     }
 
-    foreach $cfg (grep { $_ } keys(%configs)) {
-        @inc = ();
-        if (defined($inc = $options{$cfg}{'include-dir'})) {
-            foreach $inc (map { my @arr = @{$_}; splice(@arr, 1) } @{$inc}) {
-                if (! File::Spec->file_name_is_absolute($inc)) {
-                    $inc = File::Spec->catdir(Cwd::cwd(), $inc);
-                }
-                push(@inc, Cwd::realpath($inc));
-            }
-        }
-        @inc = unique(@def, @inc);
-        $configs{$cfg}{include} = \@inc;
-    }
+    unshift(@INC, unique(@inc));
 }
 
 sub resolve_systems () {

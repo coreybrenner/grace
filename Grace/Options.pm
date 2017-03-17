@@ -174,7 +174,7 @@ sub _chunk (@) {
 }
 
 sub parse ($@) {
-    my $opts = shift;
+    my ($opts, @args) = @_;
 
     my (%long, $long);
     my (%flag, $flag);
@@ -196,20 +196,17 @@ sub parse ($@) {
         }
     }
 
-    while (defined($_ = shift)) {
-        if ($_ eq '--') {
-            push(@untk, @_);
+    while (@args) {
+        if (($_ = shift(@args)) eq '--') {
+            push(@untk, @args);
             last;
         }
 
         if (m{^\@(.+)$}o) {
             my $fil = $1;
             my $dsc;
-print(STDERR __PACKAGE__."::parse(\@...): fil='$fil'\n");
             if (! File::Spec->file_name_is_absolute($fil)) {
-print(STDERR __PACKAGE__."::parse(): not absolute\n");
                 $fil = File::Spec->catfile(Cwd::cwd(), $fil);
-print(STDERR __PACKAGE__."::parse(): absolutized: '$fil'\n");
                 if (! open($dsc, '<', $fil)) {
                     push(@errs, "File '$1': $!");
                     next;
@@ -218,11 +215,7 @@ print(STDERR __PACKAGE__."::parse(): absolutized: '$fil'\n");
                     $txt = <$dsc>;
                     close($dsc);
                 }
-print(STDERR __PACKAGE__."::parse(): file text:\n$txt\n");
-my @stuff = _chunk($txt);
-print(STDERR __PACKAGE__."::parse(): new opts: [@stuff]\n");
-                unshift(@_, @stuff);
-print(STDERR __PACKAGE__."::parse(): amended option stream: @_\n");
+                unshift(@args, _chunk($txt));
             }
         } elsif (m{^--((?:[^:?+=]+|[:?+](?!=))+)(?:([:?+]?=)(.*)?)?}o) {
             $opt = $1;
@@ -233,12 +226,12 @@ print(STDERR __PACKAGE__."::parse(): amended option stream: @_\n");
                 next;
             }
             $type = (defined($hand->{type}) ? $hand->{type} : OPT_UNWANTED);
-            if (($type == OPT_REQUIRED) && ! $arg && ! @_) {
+            if (($type == OPT_REQUIRED) && ! $arg && ! @args) {
                 push(@errs, "Option '--$opt': Option requires argument");
                 next;
             } elsif (($type == OPT_REQUIRED) || ($type == OPT_OPTIONAL)) {
                 if (! $aop) {
-                    $arg = $_[0];
+                    $arg = $args[0];
                 }
             } elsif (($type == OPT_UNWANTED) && $aop) {
                 push(@errs, "Option '--$opt': Option takes no argument");
@@ -246,8 +239,8 @@ print(STDERR __PACKAGE__."::parse(): amended option stream: @_\n");
             } elsif (! $hand->{func}) {
                 next;
             }
-            if ($cnt = &{$hand->{func}}("--$opt", $aop, $arg, \@_)) {
-                splice(@_, 0, $cnt);
+            if ($cnt = &{$hand->{func}}("--$opt", $aop, $arg, \@args)) {
+                splice(@args, 0, $cnt);
             }
         } elsif (m{^-}o) {
             while ($_ ne '-') {
@@ -272,15 +265,15 @@ print(STDERR __PACKAGE__."::parse(): amended option stream: @_\n");
                         $aop = ':=';
                         $_   = '-';
                     } else {
-                        $arg = $_[0];
+                        $arg = $args[0];
                     }
                 } elsif ($type == OPT_UNWANTED) {
                     $arg = undef;
                 } elsif (! $hand->{func}) {
                     next;
                 }
-                if ($cnt = &{$hand->{func}}("-$opt", $aop, $arg, \@_)) {
-                    shift $cnt;
+                if ($cnt = &{$hand->{func}}("-$opt", $aop, $arg, \@args)) {
+                    splice(@args, 0, $cnt);
                 }
             }
         } else {
