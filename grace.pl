@@ -361,7 +361,7 @@ sub _match ($$) {
 sub _debug ($@) {
     my ($lvl, @msg) = @_;
 
-    if ($lvl && ($lvl >= $verbose)) {
+    if ($lvl && ($verbose >= $lvl)) {
         print(map { "[DBG] $program: $_\n" } @msg);
     }
 }
@@ -666,6 +666,7 @@ sub resolve_srcroot () {
     my (%dir, @dir, $dir);
     my (@top, $top, $cfg);
     my (%fil, $fil);
+    my $raw;
     my $vol;
     my $cwd = Cwd::realpath(Cwd::cwd());
 
@@ -674,12 +675,19 @@ sub resolve_srcroot () {
     # Determine whether any source roots were mentioned on the command line.
     if (defined($dir = $options{''}{srcroot})) {
         @dir = map { my @arr = @{$_}; splice(@arr, 1) } @{$dir};
-        foreach $dir (@dir) {
-            _debug(2, "SRCROOT: --srcroot='$dir'");
-            if (! File::Spec->file_name_is_absolute($dir)) {
-                $dir = File::Spec->catdir($cwd, $dir);
+        foreach $raw (@dir) {
+            _debug(2, "SRCROOT: --srcroot='$raw'");
+            if (! File::Spec->file_name_is_absolute($raw)) {
+                $dir = File::Spec->catdir($cwd, $raw);
+            } else {
+                $dir = $raw;
             }
-            $dir = Cwd::realpath($dir);
+            _debug(2, "SRCROOT: Look for dir '$dir'");
+            if (! defined($dir = Cwd::realpath($dir)) || ! -d $dir) {
+                _debug(2, "SRCROOT: Failed real path: " . printdef($dir));
+                _error("--srcroot: File '$raw': $!");
+                next;
+            }
             push(@top, $dir);
             _debug(2, "SRCROOT: Add srcroot '$dir'");
         }
@@ -731,7 +739,9 @@ sub resolve_srcroot () {
                 } else {
                     $dir = $raw;
                 }
+                _debug(2, "SRCROOT: Look for dir '$dir'");
                 if (! defined($dir = Cwd::realpath($dir)) || ! -d $dir) {
+                    _debug(2, "SRCROOT: Failed real path: " . printdef($dir));
                     _error("--srcroot: File '$raw': $!");
                     next;
                 }
@@ -806,20 +816,28 @@ sub resolve_relpath () {
     }
 }
 
-sub _resolve_outdir ($) {
-    my $key = shift;
+sub _resolve_outdir ($$) {
+    my ($key, $sub) = @_;
 
+    my $fun = uc($key);
     my $cwd = Cwd::realpath(Cwd::cwd());
 
-    my ($dir, $top, $cfg, $src, $out);
+    _debug(1, "$fun: Current directory: '$cwd'");
+
+    my ($dir, $raw, $top, $cfg, $src, $out);
 
     if (defined($dir = $options{''}{$key})) {
         # $dir = [ [ '+', dir, dir, ... ], ... ].
         # Last one wins.
-        $top = $dir->[-1]->[-1];
-        if (! File::Spec->file_name_is_absolute($top)) {
-            $top = File::Spec->catdir($cwd, $top);
+        $raw = $dir->[-1]->[-1];
+        if (! File::Spec->file_name_is_absolute($raw)) {
+            $top = File::Spec->canonpath(File::Spec->catdir($cwd, $raw));
+            _debug(2, "$fun: --$key='$raw': Not absolute");
+        } else {
+            $top = $raw;
+            _debug(2, "$fun: --$key='$raw': Specified absolute");
         }
+        _debug(2, "$fun: Canonical path: '$top'");
         # If we specify --outroot=/tmp/foo, we want all configs to build
         # there.  If we specify --outroot=foo, we still want all configs
         # to build to the directory specified ($PWD/foo).  We resolve this
@@ -829,36 +847,51 @@ sub _resolve_outdir ($) {
         # If --outroot=... is left unspecified, generate a subdir of each
         # srcroot.  Targets will resolve across different artifact caches.
         $top = eval "\$$key";
+        _debug(2, "$fun: Default $key: '$top'");
     }
 
     foreach $cfg (keys(%configs)) {
+        _debug(2, sprintf("$fun: Configure for %s", ($cfg || 'DEFAULT')));
+
         if (defined($dir = $options{$cfg}{$key})) {
             # Specifying an outroot for a specific configuration causes
             # that configuration to resolve its own outroot.  Last one wins.
-            $dir = $dir->[-1]->[-1];
-            if (! File::Spec->file_name_is_absolute($dir)) {
-                $dir = File::Spec->catdir($cwd, $dir);
+            $raw = $dir->[-1]->[-1];
+            _debug(2, sprintf("$fun: --$key%s='$raw'", ($cfg ? " $cfg" : '')));
+            if (! File::Spec->file_name_is_absolute($raw)) {
+                $dir = File::Spec->catdir($cwd, $raw);
+                _debug(2, "$fun: Not absolute; resolved: '$dir'");
+            } else {
+                $dir = $raw;
+                _debug(2, "$fun: Absolute");
             }
         } else {
             # Otherwise, accept the default.
             $dir = $top;
+            _debug(2, "$fun: Use default $key: '$dir'");
         }
 
         foreach $src (@{$configs{$cfg}{srcroot}}) {
-            if (! File::Spec->file_name_is_absolute($out = $dir)) {
-                $out = File::Spec->catdir($src, $out);
+            _debug(2, sprintf("$fun: %s srcroot: '$src'", ($cfg || 'DEFAULT')));
+            if (! File::Spec->file_name_is_absolute($dir)) {
+                $out = File::Spec->catdir($src, $dir, ($sub ? $cfg : ''));
+                _debug(2, "$fun: Not absolute; resolved: '$out'");
+            } else {
+                $out = File::Spec->catdir($dir, ($sub ? $cfg : ''));
             }
+            $out = File::Spec->canonpath($out);
+            _debug(2, "$fun: Canonical: '$out'");
             $configs{$cfg}{$key}{$src} = $out;
         }
     }
 }
 
 sub resolve_outroot () {
-    _resolve_outdir('outroot');
+    _resolve_outdir('outroot', 1);
 }
 
 sub resolve_pubroot () {
-    _resolve_outdir('pubroot');
+    _resolve_outdir('pubroot', 0);
 }
 
 sub resolve_include () {
