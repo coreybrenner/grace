@@ -110,8 +110,8 @@ sub split (@) {
 
 my $_rex_chunk = qr{
     (?(DEFINE)
-      (?<plain> (?:(?>[^\s\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
-      (?<slack> (?:(?>[^\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
+      (?<plain> (?:(?>[^\s\#\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
+      (?<slack> (?:(?>[^\#\"\'\(\)\[\]\{\}\\]+)|\\.?)+)
       (?<inquo> (?:(?>[^\"\(\)\{\}\[\]\\]+)|\\.?)+)
       (?<group_middle>
         (?: (?&slack)*
@@ -146,11 +146,15 @@ my $_rex_chunk = qr{
           | (?&quote_dollar)
         )
       )
+      (?<comment>
+        (?: \#.*$)
+      )
       (?<chunk>
         (?: (?&plain)*
             (?:(?&group)+ (?&plain)*)?
             (?:(?&quote)+ (?&plain)*)?
             (?:(?&close)+ (?&plain)*)?
+            (?:(?&comment))?
         )+
       )
     )
@@ -166,7 +170,9 @@ sub _chunk (@) {
 
         while ($istr ne '') {
             $istr =~ s{^(?>[\s,]*)($_rex_chunk)}{}o;
-            push(@oarr, $1);
+            if ($1 !~ m{^\#}o) {
+                push(@oarr, $1);
+            }
         }
     }
 
@@ -191,7 +197,8 @@ sub parse ($@) {
         foreach $flag (_tolist($hand->{flag}, $hand->{flag_hidden})) {
             $flag{$flag} = $hand;
         }
-        foreach $long (_tolist($hand->{long}, $hand->{long_hidden})) {
+        $long = ($hand->{long} || $hand->{name});
+        foreach $long (_tolist($long, $hand->{long_hidden})) {
             $long{$long} = $hand;
         }
     }
@@ -205,18 +212,23 @@ sub parse ($@) {
         if (m{^\@(.+)$}o) {
             my $fil = $1;
             my $dsc;
-            if (! File::Spec->file_name_is_absolute($fil)) {
-                $fil = File::Spec->catfile(Cwd::cwd(), $fil);
+            if ($fil eq '-') {
+                $dsc = *STDIN;
+            } else {
+                if (! File::Spec->file_name_is_absolute($fil)) {
+                    $fil = File::Spec->catfile(Cwd::cwd(), $fil);
+                }
                 if (! open($dsc, '<', $fil)) {
                     push(@errs, "File '$1': $!");
                     next;
-                } else {
-                    local $/;
-                    $txt = <$dsc>;
-                    close($dsc);
                 }
-                unshift(@args, _chunk($txt));
             }
+            { # anonymous scope.
+                local $/; # fast full slurp.
+                $txt = <$dsc>;
+            }
+            close($dsc);
+            unshift(@args, _chunk($txt));
         } elsif (m{^--((?:[^:?+=]+|[:?+](?!=))+)(?:([:?+]?=)(.*)?)?}o) {
             $opt = $1;
             $aop = $2;
@@ -239,7 +251,7 @@ sub parse ($@) {
             } elsif (! $hand->{func}) {
                 next;
             }
-            if ($cnt = &{$hand->{func}}("--$opt", $aop, $arg, \@args)) {
+            if ($cnt = &{$hand->{func}}($hand, "--$opt", $aop, $arg, \@args)) {
                 splice(@args, 0, $cnt);
             }
         } elsif (m{^-}o) {
@@ -254,6 +266,7 @@ sub parse ($@) {
                 } else {
                     $type = $hand->{type};
                 }
+print(STDERR __PACKAGE__."::parse(): opt='$opt', arg='$arg'\n");
                 if (($type == OPT_REQUIRED) && ! $arg && ! @_) {
                     push(@errs, "Option '-$1': Option requires argument");
                     next;
@@ -272,7 +285,9 @@ sub parse ($@) {
                 } elsif (! $hand->{func}) {
                     next;
                 }
-                if ($cnt = &{$hand->{func}}("-$opt", $aop, $arg, \@args)) {
+                
+                $cnt = &{$hand->{func}}($hand, "-$opt", $aop, $arg, \@args);
+                if ($cnt) {
                     splice(@args, 0, $cnt);
                 }
             }
@@ -312,8 +327,9 @@ sub usage ($) {
         foreach (_tolist($hand->{flag})) {
             $flag{$_} = $hand;
         }
-        foreach (_tolist($hand->{long})) {
-            $long{$_} = $hand;
+        $long = ($hand->{long} || $hand->{name});
+        foreach $long (_tolist($long)) {
+            $long{$long} = $hand;
         }
     }
 
@@ -337,7 +353,7 @@ sub usage ($) {
                 push(@{$hand{$hand}->{flag}}, $flag);
             }
         }
-        foreach $long (_tolist($hand->{long})) {
+        foreach $long (_tolist($hand->{long} || $hand->{name})) {
             if ($long{$long} == $hand) {
                 push(@{$hand{$hand}->{long}}, $long);
             }
