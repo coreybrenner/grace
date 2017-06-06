@@ -6,12 +6,14 @@ use warnings;
 my %_objname;
 
 sub new {
-    my $type = shift;
-    my $name = $type . '::' . ++$_objname{$type};
+    my ($type, $bldr) = @_;
+
+    my $name = $type . '@' . ++$_objname{$type};
 
     my %self = (
         _type_ => $type,
         _name_ => $name,
+        _bldr_ => $bldr,
         _errs_ => [],
         _warn_ => [],
     );
@@ -24,13 +26,13 @@ sub type {
     return $self->{_type_};
 }
 
-sub setname {
-    my $self = shift;
-    my $name = shift;
-    return ($self->{_name_} = $name);
-}
+#sub setname {
+#    my $self = shift;
+#    my $name = shift;
+#    return ($self->{_name_} = $name);
+#}
 
-sub name {
+sub object_name {
     my $self = shift;
     return $self->{_name_};
 }
@@ -38,6 +40,10 @@ sub name {
 sub error {
     my $self = shift;
     push(@{$self->{_errs_}}, @_);
+    # Propagate errors up the chain to the highest builder.
+    if ($self->{_bldr_} && ($self->{_bldr_} != $self)) {
+        $self->{_bldr_}->error(@_);
+    }
     return $self;
 }
 
@@ -49,12 +55,21 @@ sub errors {
 sub warning {
     my $self = shift;
     push(@{$self->{_warn_}}, @_);
+    # Propagate warnings up the chain to the highest builder.
+    if ($self->{_bldr_} && ($self->{_bldr_} != $self)) {
+        $self->{_bldr_}->warning(@_);
+    }
     return $self;
 }
 
 sub warnings {
     my $self = shift;
     return @{$self->{_warn_}};
+}
+
+sub builder {
+    my $self = shift;
+    return $self->{_bldr_};
 }
 
 1;

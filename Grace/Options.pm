@@ -266,7 +266,6 @@ sub parse ($@) {
                 } else {
                     $type = $hand->{type};
                 }
-print(STDERR __PACKAGE__."::parse(): opt='$opt', arg='$arg'\n");
                 if (($type == OPT_REQUIRED) && ! $arg && ! @_) {
                     push(@errs, "Option '-$1': Option requires argument");
                     next;

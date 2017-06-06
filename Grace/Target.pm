@@ -1,106 +1,73 @@
 package Grace::Target;
 
-use strict;
-use warnings;
-
-use Clone qw{clone};
-
-use Grace::Builder;
+use parent 'Grace::Object';
 
 sub new {
-    my $func = __PACKAGE__ . '->new()';
+    my $type = shift;
+    my $self = $type->SUPER::new(@_);
 
-    my ($what, $name, $conf) = @_;
+    $self->{_needs_} = {};
+    $self->{_after_} = {};
+    $self->{_ifile_} = {};
+    $self->{_ofile_} = {};
 
-    my $type = (ref($what) || $what)
-    my $prnt = (ref($what) && $what)
-    my $self;
-    my $bldr;
-
-    $conf = ($conf || {});
-
-    if ($prnt) {
-        $self = {
-            %{clone($prnt)},
-            knownas => $name,
-            %{$conf}
-        };
-    } else {
-        $self = {
-            objtype => $type,
-            attribs => {},
-            knownas => $name,
-            depends => {},
-            clients => {},
-            sources => {},
-            outputs => {},
-            variant => {},
-            %{$conf},
-        };
-    }
-
-    return bless($self, $type);
+    return $self;
 }
 
-sub variant {
+sub build {
+    return 1;
+}
+
+sub clean {
+    return 1;
+}
+
+sub build_after {
+    my $self = shift;
+    foreach my $tgt (@_) {
+        $self->{_after_}->{$tgt} = 1;
+    }
+}
+
+sub builds_after {
+    my $self = shift;
+    return unique(keys(%{$self->{_needs_}}), keys(%{$self->{_after_}}));
+}
+
+sub input {
+    my $self = shift;
+    foreach my $inp (@_) {
+        $self->{_ifile_}->{$inp} = $inp;
+    }
+}
+
+sub inputs {
+    my $self = shift;
+    return values(%{$self->{_ifile_}});
+}
+
+sub output {
+    my $self = shift;
+    foreach my $out (@_) {
+        $self->{_ofile_}->{$out} = $out;
+    }
 }
 
 sub outputs {
     my $self = shift;
-    return keys(%{$self->{outputs}})
+    return values(%{$self->{_ofile_}});
 }
 
-sub sources {
+sub require {
     my $self = shift;
-    return keys(%{$self->{sources}});
-}
-
-sub depends {
-    my $self = shift;
-    return keys(%{$self->{depends}});
-}
-
-sub clients {
-    my $self = shift;
-    return keys(%{$self->{clients}});
-}
-
-sub getattr {
-    my ($self, $name) = @_;
-
-    my $aref = $self->{attribs}->{$name};
-
-    return ($aref ? @{$aref} : ())
-}
-
-sub hasattr {
-    my ($self, $name) = @_;
-
-    return defined($self->{attribs}->{$name});
-}
-
-sub setattr {
-    my ($self, $name, @vals) = @_;
-
-    $self->{attribs}->{$name} = \@vals;
-
-    if (wantarray) {
-        return @{$self->{attribs}->{$name}};
-    } else {
-        return $self;
+    foreach my $tgt (@_) {
+        $self->{_needs_}->{$tgt} = 1;
     }
 }
 
-sub addattr {
-    my ($self, $name, @vals) = @_;
-
-    push(@{$self->{attribs}->{$name}}, @vals);
-
-    if (wantarray) {
-        return @{$self->{attribs}->{$name}};
-    } else {
-        return $self;
-    }
+sub requires {
+    my $self = shift;
+    return keys(%{$self->{_needs_}});
 }
 
 1;

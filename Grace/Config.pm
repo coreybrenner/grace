@@ -8,16 +8,13 @@ use Data::Dumper;
 
 use parent 'Grace::Object';
 
-my %_rawfile;
-my %_stacked;
-my %_compile;
-
 sub merge_data (@) {
     my (@more) = @_;
 
     sub _merge_list ($$);
     sub _merge_hash ($$);
 
+    our @errs;
     our %funs = (
         UNDEF  => {
             ARRAY  => sub { _merge_list([], $_[1])        },
@@ -76,7 +73,7 @@ sub merge_data (@) {
         return $into;
     }
 
-    my $data;
+    my $data = {};
     my $data_type;
     my $more;
     my $more_type;
@@ -98,59 +95,63 @@ sub merge_data (@) {
 }
 
 sub merge_file (@) {
+    my $conf = ((ref($_[-1]) eq 'HASH') ? pop(@_) : undef);
+    my @file = @_;
+
     my  @errs;
-    my  @warn;
     my  $data;
 
-    my $join = join('|', @_);
-    if (defined($data = $_stacked{$join})) {
-        return $data;
+    our $bldr = ($conf && $conf->{builder});
+    our %envp = ($bldr ? $bldr->getenv() : %ENV);
+    my  $file;
+    my  @data;
+
+    sub BUILDER () {
+        return $bldr;
     }
 
-    my $file;
-    my @data;
-    foreach $file (@_) {
-        if (! defined($data = $_rawfile{$file})) {
-            if (defined($data = eval { do $file })) {
-                push(@data, ($_rawfile{$file} = $data));
+    { # scope for local %ENV
+        local %ENV = %envp;
+
+        foreach $file (@file) {
+            if (! defined($data = do $file)) {
+                push(@errs, "File '$file': " . ($@ || $!));
             } else {
-                push(@errs, $@);
+                push(@data, $data);
             }
         }
-        $data = merge_data(@data);
+
+        if ($bldr && $conf->{builder_write_env}) {
+            $bldr->setenv(\%ENV);
+        }
     }
 
-    if (! @errs) {
-        $_stacked{$join} = $data;
-    }
-
-    return ($data, \@errs, \@warn);
+    return (\@data, \@errs);
 }
 
 sub new {
-    my ($what, @file) = @_;
+    my ($what, $bldr, @file) = @_;
 
     my $type = (ref($what) || $what);
     my $prnt = (ref($what) && $what);
-    my $self = $type->SUPER::new();
+    my $self = $type->SUPER::new($bldr);
     my $fail = 0;
-
-    my ($data, $errs, $warn);
 
     if ($prnt) {
         unshift(@file, @{$prnt->{_file_}});
     }
 
-    $self->{_file_} = \@file;
-
-    ($data, $errs, $warn) = $type->merge_file(@file);
-
-    $self->warning(@{$warn});
-    $self->error(@{$errs});
+    my ($data, $errs) = merge_file(@file);
 
     if (! @{$errs}) {
-        $self->{_data_} = $data;
+        $data = merge_data(@{$data});
+
+        if (! @{$errs}) {
+            $self->{_data_} = $data;
+        }
     }
+
+    $self->error(@{$errs});
 
     return $self;
 }

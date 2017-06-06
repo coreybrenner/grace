@@ -161,6 +161,12 @@ my @options = (
         args        => '[PROJ...=]ARCH...',
         help        => 'Configure for target platforms',
     }, {
+        name        => 'subarch',
+        type        => OPT_REQUIRED,
+        func        => \&_opt_dict,
+        args        => '[PROJ...::][NAME=]ARCH...',
+        help        => 'Restrict fat sub-architectures',
+    }, {
         name        => 'variant',
         type        => OPT_REQUIRED,
         func        => \&_opt_dict,
@@ -468,7 +474,6 @@ sub _opt_list ($$$$$) {
     my ($handle, $opt, $aop, $arg, $vec) = @_;
 
     my $nam = (($handle && $handle->{name}) || $opt);
-print(STDERR "_opt_list(): nam = '$nam'\n");
 
     my  @cfg;
     my ($cfg, $Aop, $val) =
@@ -497,11 +502,10 @@ print(STDERR "_opt_list(): nam = '$nam'\n");
     return ($aop ? 0 : 1);
 }
 
-sub __opt_dist (@) {
+sub __opt_dist {
     my ($handle, $opt, $aop, $arg, $vec, $fun) = @_;
 
     my $nam = (($handle && $handle->{name}) || $opt);
-print(STDERR "__opt_dist(): nam = '$nam'\n");
 
     my ($cfg, $key, $Aop, $val);
 
@@ -1141,7 +1145,7 @@ sub resolve_lookups () {
             # Last one wins.
             $alias{$cfg}{$ali} = $nam->[-1]->[-1];
         }
-        $alias{$cfg} = { %{$alias{''}}, %{$alias{$cfg}} };
+        $alias{$cfg} = { %{$alias{''}}, %{ ($alias{$cfg} || {}) } };
         _debug(2, "LOOKUPS: Aliases for config '$cfg':",
                map { "LOOKUPS: Alias '$_' = '$alias{$cfg}{$_}'" }
                    sort(keys(%{$alias{$cfg}}))
@@ -1233,7 +1237,7 @@ sub resolve_systems () {
     $configs{''}{systems} = \@def;
 
     # Create system config list for named configurations.
-    foreach $cfg (grep { $_ } keys(%configs)) {
+    foreach $cfg (grep { $_ } keys(%options)) {
         my @sys;
         if (! defined($sys = $options{$cfg}{systems})) {
             _debug(2, "SYSTEMS: No systems specified for $cfg config");
@@ -1245,6 +1249,57 @@ sub resolve_systems () {
         }
         $configs{$cfg}{systems} = \@sys;
         _debug(2, "SYSTEMS: Configured for $cfg config: [ @sys ]");
+    }
+}
+
+sub resolve_subarch () {
+    my (%cfg, $cfg, @sub, $sub, $sys);
+
+    # --subarch=foo --> --subarch foo=1
+    @sub = @{ ($options{''}{subarch}{''} || []) };
+    @sub = unique(map { my @arr = @{$_}; splice(@arr, 1) } @sub);
+    _debug(2, "SUBARCH: Restrict subarches globally to [@sub]");
+    foreach $sub (@sub) {
+        $cfg{''}{''}{$sub} = 1;
+    }
+
+    # --subarch sys=sub
+    while (($sys, $sub) = each(%{$options{''}{subarch}})) {
+        next if (! $sys);
+        @sub = map { my @arr = @{$_}; splice(@arr, 1) } @{$sub};
+        @sub = unique(@sub, keys(%{$cfg{''}{''}}));
+        _debug(2, "SUBARCH: Restrict subarches globally"
+                . " for system $sys to [@sub]");
+        foreach $sub (@sub) {
+            $cfg{''}{$sys}{$sub} = 1;
+        }
+    }
+
+    $configs{''}{subarch}{''} = $cfg{''};
+
+    foreach $cfg (grep { $_ } keys(%options)) {
+        # --subarch cfg::sub...
+        @sub = @{ ($options{$cfg}{subarch}{''} || []) };
+        @sub = map { my @arr = @{$_}; splice(@arr, 1) } @sub;
+        @sub = unique(@sub, keys(%{$cfg{''}{''}}));
+        _debug(2, "SUBARCH: Restrict subarches for config $cfg to [@sub]");
+        foreach $sub (@sub) {
+            $cfg{$cfg}{''}{$sub} = 1;
+        }
+
+        # --subarch cfg::sys=sub...
+        while (($sys, $sub) = each(%{ ($options{$cfg}{subarch} || {}) })) {
+            next if (! $sys);
+            @sub = map { my @arr = @{$_}; splice(@arr, 1) } @{$sub};
+            @sub = unique(@sub, keys(%{$cfg{$cfg}{''}}));
+            _debug(2, "SUBARCH: Restrict subarches for"
+                    . " config $cfg for system $sys to [@sub]");
+            foreach $sub (@sub) {
+                $cfg{$cfg}{$sys}{$sub} = 1;
+            }
+        }
+
+        $configs{$cfg}{subarch} = $cfg{$cfg};
     }
 }
 
@@ -1328,7 +1383,6 @@ sub _resolve_config (%) {
     my (@fil, $fil);
     my $cfg;
 
-print(STDERR "_resolve_config(): ".Dumper(\%setup));
     my $cwd = Cwd::realpath(Cwd::cwd());
 
     if (! defined($fil = $options{''}{$setup{key}})) {
@@ -1422,7 +1476,6 @@ sub resolve_variant_config () {
 }
 
 sub parse_options (@) {
-print(STDERR "parse_options(args=[@_])\n");
     my ($unknown, $untaken, $errlist) = Grace::Options::parse(\@options, @_);
 
     push(@errlist, @{$errlist});
@@ -1470,6 +1523,7 @@ print(STDERR "parse_options(args=[@_])\n");
     resolve_lookups();
     resolve_variant();
     resolve_systems();
+    resolve_subarch();
     resolve_toolset();
     resolve_systems_config();
 #    resolve_toolset_config();
@@ -1506,7 +1560,9 @@ print(STDERR "parse_options(args=[@_])\n");
 sub create_builders () {
     my (%cfg, @cfg, $cfg, $dir, %bld);
 
+    # If there are named configs, configure those.
     if (! (@cfg = grep { $_ } keys(%configs))) {
+        # Otherwise, configure the unnamed (global) config.
         @cfg = keys(%configs);
     }
 
@@ -1537,7 +1593,7 @@ sub create_builders () {
 }
 
 parse_options(@ARGV);
-#create_builders();
+create_builders();
 
 print(Dumper([ 'OPTIONS', \%options ],
              [ 'CONFIGS', \%configs ])); 
