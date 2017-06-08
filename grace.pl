@@ -1226,7 +1226,7 @@ sub resolve_systems () {
 
     # Build default systems list.
     if (! defined($sys = $options{''}{systems})) {
-        @def = ( $systems );
+        @def = split(m{[\s,]+}o, $systems);
         _debug(2, "SYSTEMS: Use default: '$systems'");
     } else {
         # --systems=sys...
@@ -1294,9 +1294,7 @@ sub resolve_subarch () {
             @sub = unique(@sub, keys(%{$cfg{$cfg}{''}}));
             _debug(2, "SUBARCH: Restrict subarches for"
                     . " config $cfg for system $sys to [@sub]");
-            foreach $sub (@sub) {
-                $cfg{$cfg}{$sys}{$sub} = 1;
-            }
+            map { $cfg{$cfg}{$sys}{$_} = 1 } @sub;
         }
 
         $configs{$cfg}{subarch} = $cfg{$cfg};
@@ -1594,9 +1592,6 @@ sub create_builders () {
 
 parse_options(@ARGV);
 create_builders();
-
-print(Dumper([ 'OPTIONS', \%options ],
-             [ 'CONFIGS', \%configs ])); 
 
 __DATA__
 if (create_builders()) {

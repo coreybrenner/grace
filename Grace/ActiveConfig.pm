@@ -8,7 +8,6 @@ package Grace::ActiveConfig::Hash;
 
 use strict;
 use warnings;
-use Data::Dumper;
 
 require Tie::Hash;
 
@@ -69,7 +68,7 @@ sub TIEHASH {
 
 sub FETCH {
     my $val = $_[0]->SUPER::FETCH($_[1]);
-    ((ref($val) eq 'CODE') ? &{$val} : $val);
+    ((ref($val) eq 'CODE') ? &{$val}($_[0]->{_bldr_}) : $val);
 }
 
 sub STORE {
@@ -78,15 +77,12 @@ sub STORE {
 
 package Grace::ActiveConfig;
 
-use Data::Dumper;
-
 sub activate ($) {
     my $data = shift;
 
     my %data;
 
     tie(%data, __PACKAGE__.'::Hash', $data);
-print(STDERR __PACKAGE__."::activate(): DATA: ".Dumper(\%data));
 
     return \%data;
 }

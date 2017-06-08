@@ -109,7 +109,11 @@ sub _closure ($$) {
             }
         }
         if ($keep) {
-            $keep{$name} = \@list;
+            if (@list == 1) {
+                $keep{$name} = $list[0];
+            } else {
+                $keep{$name} = \@list;
+            }
         }
 
         return @list;

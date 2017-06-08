@@ -3,10 +3,13 @@ package Grace::Object;
 use strict;
 use warnings;
 
+use Scalar::Util qw{weaken};
+
 my %_objname;
 
 sub new {
-    my ($type, $bldr) = @_;
+    my $type = shift;
+    my $bldr = shift;
 
     my $name = $type . '@' . ++$_objname{$type};
 
@@ -18,6 +21,8 @@ sub new {
         _warn_ => [],
     );
 
+    weaken($self{_bldr_});
+
     return bless(\%self, $type);
 }
 
@@ -25,12 +30,6 @@ sub type {
     my $self = shift;
     return $self->{_type_};
 }
-
-#sub setname {
-#    my $self = shift;
-#    my $name = shift;
-#    return ($self->{_name_} = $name);
-#}
 
 sub object_name {
     my $self = shift;
