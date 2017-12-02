@@ -53,8 +53,6 @@ sub setenv {
             }
         }
     }
-
-    return $self;
 }
 
 sub getenv {

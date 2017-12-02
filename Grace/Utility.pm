@@ -1,5 +1,8 @@
 package Grace::Utility;
 
+use strict;
+use warnings;
+
 BEGIN {
     use Exporter     qw{import};
     our @EXPORT_OK = qw{unique printdef slice construct};
@@ -58,66 +61,20 @@ sub slice ($$@) {
     splice(@arr, $beg, $cnt);
 }
 
-# Make a copy of the base type's %_dflt.
-sub construct (@) {
-    my (@hash) = @_;
-    my  %copy;
-    my  @errs;
-    my  $weak;
+sub flatten (@) {
+    my @ilist = @_;
+    my @olist;
 
-    foreach my $hash (@hash) {
-print(STDERR "HASH: " . (defined($hash) ? $hash : '<undef>') . "\n");
-        while (my ($key, $val) = each(%{$hash})) {
-print(STDERR "KEY: '$key', VAL: '" . Dumper($val) . "'\n");
-            $weak = 0;
-
-            if ($key =~ m{^:([^:]+):$}o) {
-print(STDERR "KEY '$key' -> $1: Storable::dclone($val)\n");
-                $copy{$1} = Storable::dclone($val);
-print(STDERR Dumper($copy{$1}) . "\n");
-            } elsif ($key =~ m{^\?([^?]+)\?$}o) {
-print(STDERR "KEY '$key' -> $1: =\n");
-                $copy{$1} = $val;
-print(STDERR "WEAKEN: $copy{$1}\n");
-                Scalar::Util::weaken($copy{$1});
-                $weak = 1;
-            } elsif ($key =~ m{^_(.*)_$}o) {
-                $copy{$1} = (! ref($val)
-                             ? $val
-                             : ((ref($val) eq 'ARRAY') ? \@{$val} : \%{$val}));
-print(STDERR "KEY '$key' -> ?=: $copy{$1}\n");
-            } else {
-                push(@errs, "Invalid key '$key'");
-                next;
-            }
-
-            $key = $1;
-
-            foreach (@over) {
-                next if (! defined($_->{$key}));
-
-                my ($cur, $new) = (ref($copy{$key}), ref($_->{$key}));
-
-                if ((! $cur &&   $new)
-                || (  $cur && ! $new)
-                || ($cur && ($cur ne $new)))
-                {
-                    push(@errs, "Data type mismatch for '$key'");
-                } elsif ($cur && ($cur ne 'ARRAY') && ($cur ne 'HASH')) {
-                    $copy{$key} = $_->{$key};
-                    if ($weak) {
-                        Scalar::Util::weaken($copy{$key});
-                    }
-                } elsif ($cur && ($cur eq 'ARRAY')) {
-                    $copy{$key} = [ @{$_->{$key}} ];
-                } else {
-                    $copy{$key} = { %{$_->{$key}} };
-                }
-            }
+    while (@ilist) {
+        my $data = pop(@ilist);
+        if (ref($data) ne 'ARRAY') {
+            push(@olist, $data);
+        } else {
+            unshift(@ilist, @{$data});
         }
     }
 
-    return (\%copy, \@errs);
+    return @olist;
 }
 
 1;
