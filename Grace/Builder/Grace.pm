@@ -3,14 +3,12 @@ package Grace::Builder::Grace;
 use strict;
 use warnings;
 
-use Data::Dumper;
-
-use Grace::Config::Environ;
-use Grace::Config::Systems;
-
 use parent 'Grace::Builder';
 
 use Clone qw{clone};
+
+use Grace::Config::Environ;
+use Grace::Config::Platform;
 
 sub getenv {
     my ($self, $var) = @_;
@@ -43,90 +41,27 @@ sub setenv {
     return $self;
 }
 
-sub _systems_config {
-    my $self = shift;
-
-    $self->{_attr_}->{systems_config_dict} =
-        Grace::Config::Systems->new($self, @_);
-
-    #
-    # Validate systems+subarch configurations, possibly restricting subarches.
-    #
-    my %sys;
-    my @bad;
-    foreach my $sys (@{$self->{_attr_}->{systems}}) {
-        my $cfg;
-        if (! ($cfg = $self->{_attr_}->{systems_config_dict}->system($sys))) {
-            push(@bad, $sys);
-            next;
-        }
-        #
-        # Make independent copy of each active system configuration.
-        # These configurations may then be modified as needed, while
-        # not changing the information in the compiled system config
-        # dictionary, which we also want to keep in a pristine state
-        # for reporting.
-        #
-        $cfg = $sys{$sys} = clone($cfg);
-
-        #
-        # Restrict fat architectures' fatarch fields to the named
-        # subarchitectures, if any names match.  If there are no
-        # matches in any active configuration's fatarch field, then
-        # assume that the subarch restriction does not apply to the
-        # system under scrutiny, and allow through the full set.
-        #
-        my @cfg;
-        if (ref($cfg) eq 'ARRAY') {
-            @cfg = @{$cfg};
-        } else {
-            @cfg = ( $cfg );
-        }
-
-        foreach $cfg (@cfg) {
-            if ($cfg->{fatarch} && $self->{_attr_}->{subarch}) {
-                my %sub;
-                # Compile a list of subarches matching this system config.
-                foreach my $sub (keys(%{$cfg->{fatarch}})) {
-                    if ($self->{_attr_}->{subarch}->{$sub}) {
-                        $sub{$sub} = 1;
-                    }
-                }
-                # If any matches, chop out the non-matching subarchitectures
-                # from the retained system configuration.
-                if (keys(%sub)) {
-                    foreach my $sub (keys(%{$cfg->{fatarch}})) {
-                        if (! $sub{$sub}) {
-                            delete($cfg->{fatarch}->{$sub});
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (@bad) {
-        $self->error(map { "System '$_' not configured" } @bad);
-        $self->error("System configuration files:");
-        $self->error(map { "    '$_'" } @{$self->{systems_config_file}});
-    } else {
-        $self->{_attr_}->{systems_config} = \%sys;
-    }
-}
-
 sub new {
-    my ($what, %conf) = @_;
+    my ($what, %attr) = @_;
 
-    my  $type = (ref($what) || $what);
-    my  $self = bless({ _attr_ => { %conf } }, $type);
+    my $self = $what->SUPER::new(%attr);
 
-#    _environ_config($self, @{$conf{environ_config_file}});
+#    _environ_config($self, @{$self->{_attr_}->{environ_config_file}});
 #print(STDERR __PACKAGE__."->new($what, ...): ENV: ".Dumper($self->{_attr_}->{environ}));
 
-    _systems_config($self, @{$conf{systems_config_file}});
-print(STDERR __PACKAGE__."->new(): Final builder config:".Dumper($self));
+    my $dict = Grace::Config::Platform->new(
+        { builder => $self }, @{$self->{_attr_}{systems_config_file}}
+    );
+    if (! $dict || $dict->errors()) {
+        $self->error(
+            "System configuration files:",
+            map { "    '$_'" } @{$self->{_attr_}{systems_config_file}}
+        );
+    }
+    $self->{_attr_}{systems_config_dict} = $dict;
 
-#    _variant_config($self, @{$conf{variant_config_file}});
-#    _toolset_config($self, @{$conf{toolset_config_file}});
+#    _variant_config($self, @{$self->{_attr_}->{variant_config_file}});
+#    _toolset_config($self, @{$self->{_attr_}->{toolset_config_file}});
 
     return $self;
 }

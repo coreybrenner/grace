@@ -1,37 +1,38 @@
-package Grace::Config::Systems;
-
 use strict;
 use warnings;
 
-use Clone                qw{clone};
-use Data::Dumper;
-use Scalar::Util         qw{weaken};
+package Grace::Config::Platform;
 
 use parent 'Grace::Config';
 
 use Grace::Utility       qw{unique};
 use Grace::ActiveConfig;
+use Grace::Platform;
 
-$Data::Dumper::Indent=1;
+use Data::Dumper;
 
-sub _closure ($$) {
-    our ($bldr, $from) = @_;
+$Data::Dumper::Indent = 1;
+$Data::Dumper::Purity = 1;
+$Data::Dumper::Trailingcomma = 1;
+$Data::Dumper::Sortkeys = 1;
+
+sub _compile ($) {
+    our $self = shift;
+    our $from = $self->{_data_};
 
     our @work = ();
-    our @errs = ();
-    our @warn = ();
     our %keep = ();
     our %done = ();
     our %fail = ();
     our %loop = ();
-    our %phat = ();
+    our %fats = ();
     our %list = ();
     our @path = ();
 
     # Inject an error into the configuration.
     sub _error (@) {
-        my $head = "Config '" . join('->', @path) . "'";
-        push(@errs, map { $_ } map { "$head: $_" } @_);
+        my $head = (@path ? "Config '" . join('->', @path) . "': " : '');
+        $self->error(map { "$head$_" } @_);
         return 1;
     }
 
@@ -59,37 +60,24 @@ sub _closure ($$) {
 
         $loop{$name} = 1;
         push(@path, $name);
+
         if (! ref($data)) {
             if (! (@list = _trace($data))) {
-                $fail{$name} = _error("Aliased by config '$name'");
+                $fail{$name} = _error("Failed to trace config '$data'");
             }
         } elsif (ref($data) eq 'ARRAY') {
             if (! (@list = _group($data))) {
-                $fail{$name} = _error("Grouped by config '$name'");
+                $fail{$name} = _error("Failed to resolve system list");
             }
         } elsif (ref($data) eq 'HASH') {
             if (! (@list = _close($data, $name))) {
-                $fail{$name} = _error("Could not configure '$name'");
-            } else {
-                # Record the configuration's override sysconf.
-                my $conf = $data->{sysconf};
-
-                foreach $data (@list) {
-                    #
-                    # If this is a configurable system name, ensure that
-                    # it is carrying an appropriate sysconf and syspath values.
-                    #
-                    if ($data->{sysarch}
-                     || $data->{fatarch}
-                     || $data->{syslist})
-                    {
-                        $data->{sysconf} = ($conf || $name);
-                    }
-                }
+                $fail{$name} = _error("Failed to resolve config");
             }
         } else {
-            $fail{$name} = _error("Config '$name' must be string,"
-                                . " an array of strings, or a hash");
+            $fail{$name} = _error(
+                "Config '$name' must be string,"
+              . " an array of strings, or a hash"
+            );
         }
         pop(@path);
         $loop{$name} = 0;
@@ -103,7 +91,11 @@ sub _closure ($$) {
         # Determine whether to keep a configuration.
         my $keep = 1;
         foreach $data (@list) {
-            if (! $data->{sysconf}) {
+            if (! $data->{subarch}
+             && ! $data->{sysarch}
+             && ! $data->{fatarch}
+             && ! $data->{syslist})
+            {
                 $keep = 0;
                 last;
             }
@@ -169,16 +161,21 @@ sub _closure ($$) {
 
         my @arch;
         my %arch;
-        if (! ref($arch)) {
+        if (! ref($arch) || (ref($arch) eq 'ARRAY')) {
             @arch = ( $arch );
-        } elsif (ref($arch) eq 'ARRAY') {
-            @arch = @{$arch};
         } elsif (ref($arch) eq 'HASH') {
             %arch = %{$arch};
         } else {
             $fail = _error("Fatarch: Unknown type: " . ref($arch));
         }
 
+        #
+        # If data was a string or list of strings, load up the named arch
+        # hash, which is then unloaded.  Otherwise, we were given a hash
+        # already keyed by subarch names.  If neither is true, then @arch
+        # will be empty and so will %arch, so we fall through with a type
+        # error.
+        #
         for (my $indx = 0; $indx < @arch; ) {
             if (! ref($arch = $arch[$indx])) {
                 $arch{$arch} = {};
@@ -191,9 +188,9 @@ sub _closure ($$) {
                     $arch->{subarch} || $arch->{sysarch} || "subarch$indx"
                 );
                 $arch{$name} = $arch;
-            } elsif (ref($arch[$indx]) eq 'ARRAY') {
+            } elsif (ref($arch) eq 'ARRAY') {
                 # Flatten out embedded lists...
-                splice(@arch, $indx, 1, @{$arch[$indx]});
+                splice(@arch, $indx, 1, @{$arch});
                 next;
             } else {
                 $fail = _error(
@@ -205,23 +202,22 @@ sub _closure ($$) {
 
         @arch = ();
         while (my ($name, $data) = each(%arch)) {
-            $phat{$data} = {
+            my %data = %{$data};
+
+            $fats{\%data} = {
                 name => $name,
                 conf => $conf,
-                arch => $data,
+                arch => \%data,
             };
-            if (! $data->{subarch}) {
-                $data->{subarch} = $name;
+            if (! $data{subarch}) {
+                $data{subarch} = $name;
             }
-            my $inht;
-            if (! ($inht = $data->{inherit})) {
-                $inht = [       ];
-            } elsif (! ref($inht) || (ref($inht) ne 'ARRAY')) {
-                $inht = [ $inht ];
-            }
-            $data->{inherit} = [ @{$inht}, $conf ];
 
-            push(@arch, $data);
+            $data{inherit} = [
+                grep { $_ } (($data->{inherit} || undef), $conf)
+            ];
+
+            push(@arch, \%data);
         }
 
         if (! $fail) {
@@ -235,16 +231,14 @@ sub _closure ($$) {
     sub _syslist ($) {
         my $conf = shift;
         my $fail = 0;
-        my $list;
+        my $list = $conf->{syslist};
 
-        if (! ref($conf->{syslist})) {
-            $list = [ $conf->{syslist} ];
-        } elsif (ref($conf->{syslist}) eq 'ARRAY') {
-            map { if (ref($_)) { $fail = 1; } } @{$conf->{syslist}};
+        if (! ref($list)) {
+            $list = [ $list ];
+        } elsif (ref($list) eq 'ARRAY') {
+            map { if (ref($_)) { $fail = 1; } } @{$list};
             if ($fail) {
                 _error("Syslist entry must be a plain string");
-            } else {
-                $list = $conf->{syslist};
             }
         } else {
             $fail = _error("Syslist must be plain string or array of strings");
@@ -275,6 +269,7 @@ sub _closure ($$) {
         if (defined($data->{inherit})) {
             @inht = _group($data->{inherit});
         }
+
         # Merge the inherited configurations and the current configuration.
         my $conf = Grace::Config::merge_data(@inht, $data);
         #
@@ -283,51 +278,79 @@ sub _closure ($$) {
         #
         delete($conf->{inherit});
 
-        #
-        # If sysarch is present, this configuration is a final,
-        # single-architecture platform.  If subarch is present, this
-        # configuration is a generated sub-architecture configuration
-        # for an overarching fat platform.  In both cases, prune any
-        # fatarch or syslist fields.  They are not relevant, and would
-        # cause infinite recursion if not pruned.
-        #
-        if ($conf->{sysarch} || $conf->{subarch}) {
+        # Determine how this configuration must be finalized.
+        if ($conf->{subarch}) {
+            #
+            # subarch is inserted by _fatarch() when the enclosing fat
+            # platform container is encountered.  If we see it in a config,
+            # then we get rid of the other finalizers.  A fat subarch
+            # (building as a fat subarch) will not have a sysarch setting,
+            # but will carry the platform discriminator on its subarch
+            # setting.  A fat subarch is a single system configuration,
+            # with no further platform nesting, so get rid of any
+            # (probably inherited) fatarch and syslist finalizers.
+            #
+            delete($conf->{sysarch});
             delete($conf->{fatarch});
             delete($conf->{syslist});
+        } elsif ($conf->{sysarch}) {
+            #
+            # sysarch presence marks this config as a thin, single-arch
+            # configuration.  Drop fatarch and syslist finalizers, to
+            # avoid confusion (and recursion).  fatarch and syslist
+            # configs may end up using these configurations.
+            #
+            delete($conf->{fatarch});
+            delete($conf->{syslist});
+        } elsif ($conf->{fatarch}) {
+            #
+            # The presence of fatarch marks this config as a container
+            # whose configurations are inherited by its subarchitectures
+            # (except where the subarch holds a builtas setting), and
+            # whose subarchitectures are built before fat target processing
+            # makes use of the subarchitectures built.
+            #
+            delete($conf->{syslist});
+        } elsif ($conf->{syslist}) {
+            # 
+            # The syslist finalizer makes it possible for this config to
+            # both provide heritable settings and to show up in the final
+            # configuration as a list of platforms aliased by this name.
+            #
         }
 
         if (! $name) {
-            if (my $phat = $phat{$data}) {
+            #
+            # An unnamed configuration passed in for finishing up is
+            # almost certainly a fat subarchitecture.
+            #
+            if (my $fats = $fats{$data}) {
                 #
                 # If this configuration is tagged as a fat sub-architecture,
                 # then stow the completed configuration for final linking.
                 #
-                $phat{$conf} = {
-                    %{$phat},
+                $fats{$conf} = {
+                    %{$fats},
                     arch => $conf,
                 };
                 #
                 # Once the fat configuration is finalized, don't do that
                 # again for this raw config reference.
                 #
-                delete($phat{$data});
+                delete($fats{$data});
             }
-        } elsif (defined($conf->{fatarch})) {
+        } elsif ($conf->{fatarch}) {
             #
-            # If this is a fat architecture container, prune an
-            # irrelevant (possibly inherited) syslist field.  This
-            # will help us to avoid infinite recursion.  Then,
-            # inject partially-configured fat subarchitectures onto
+            # Inject partially-configured fat subarchitectures onto
             # the work queue for later completion.
             #
-            delete($conf->{syslist});
             if (_fatarch($conf)) {
                 $fail = _error("Fatarch configuration");
             }
-        } elsif (defined($conf->{syslist})) {
+        } elsif ($conf->{syslist}) {
             #
-            # A syslist field causes this configuration to finalize
-            # the same way as a config defined with an [ array ].
+            # A syslist or builtas field causes this configuration to
+            # finalize the same way as a config defined with an [ array ].
             # This field allows a configuration to both act as a
             # source of inherited configuration and also as a logical
             # name for a group of independent platforms.  Consider a
@@ -341,7 +364,121 @@ sub _closure ($$) {
             }
         }
 
-        return ($fail ? () : ( $conf ));
+        if ($fail) {
+            return ();
+        }
+
+        # Tag the (mostly) finished configuration with a system name.
+        $conf->{sysname} = (
+            $conf->{sysname}
+              || (Grace::Platform::split($name || $conf->{sysconf})->{sysname})
+        );
+
+        # Tag the (mostly) finished configuration with its name.
+        $conf->{sysconf} = (
+            $data->{sysconf}
+              || $name  # The name given when closing this config.
+              #
+              # If neither of the above are set, make something up.
+              # Most likely used to generate a fat sub-arch config name,
+              # which will be used for placing compiled objects.  Makes
+              # a particular sub-architecture selectable from the cmdline.
+              #
+              || ((! $conf->{subarch} && ! $conf->{sysarch})
+                  ? $conf->{sysname}
+                  : ($conf->{subarch}
+                     ? join('/fat/', $conf->{sysname}, $conf->{subarch})
+                     : join('_',     $conf->{sysname}, $conf->{sysarch})
+                    )
+                 )
+        );
+
+        return ( $conf );
+    }
+
+    sub _collate () {
+        my %name;
+        my %conf;
+
+        my $bldr = $self->builder();
+
+        # Do thin platforms first, delaying fatarch and syslist configs.
+        while (my ($name, $conf) = each(%keep)) {
+            # Skip array refs, fatarch containers, and already-done hashes.
+            next if (ref($conf) ne 'HASH');
+            next if ($conf->{fatarch});
+            next if ($conf{$conf});
+
+            # Create a Platform.
+            if (my $plat = Grace::Platform->new(%{$conf}, builder => $bldr)) {
+                $conf{$conf} = $plat;
+                $name{$name} = $plat;
+            } else {
+                _error("Failed to create configuration '$name'");
+            }
+        }
+
+        #
+        # Now, collate fatarch configs, creating Platforms for non-builtas
+        # sub-architectures, keeping Platforms already created for builtas
+        # sub-architectures, and finally creating a Platform for the fatarch
+        # container itself, with sub-architectures already being completed
+        # Platform objects.
+        #
+        while (my ($name, $conf) = each(%keep)) {
+            next if ((ref($conf) ne 'HASH') || ! $conf->{fatarch});
+
+            my %fat;
+            while (my ($sub, $cfg) = each(%{$conf->{fatarch}})) {
+                my $sys;
+                if ($cfg->{builtas}) {
+                    $sys = $name{$cfg->{builtas}};
+                } else {
+                    $sys = Grace::Platform->new(
+                        %{$cfg}, builder => $self->builder(),
+                    );
+                }
+                $fat{$sub} = $sys;
+            }
+            my $plat = Grace::Platform->new(
+                %{$conf},
+                fatarch => \%fat,
+                builder => $bldr,
+            );
+            if ($plat && ! $plat->errors()) {
+                $conf{$conf} = $plat;
+                $name{$name} = $plat;
+            }
+        }
+
+        #
+        # Then, collate syslist configs.  These are stored in %keep as
+        # array references, and may name fat architectures.
+        #
+        while (my ($name, $conf) = each(%keep)) {
+            next if (ref($conf) ne 'ARRAY');
+
+            my @list;
+            foreach my $cfg (@{$conf}) {
+                my $plat;
+                if (! ($plat = $conf{$cfg})) {
+                    $plat = Grace::Platform->new(
+                        %{$cfg},
+                        builder => $bldr,
+                    );
+                    if (! $plat->errors()) {
+                        $conf{$cfg} = $plat;
+                        $plat       = undef;
+                    }
+                }
+                if ($plat) {
+                    push(@list, $plat);
+                }
+            }
+            $name{$name} = \@list;
+        }
+
+        return \%name;
     }
 
     #
@@ -357,7 +494,7 @@ sub _closure ($$) {
             # A plain string.  Treat as an alias, and trace the reference.
             if (! _trace($item)) {
                 # No configurations returned, and errors already logged.
-                $fail = 1;
+                $fail = _error("Failed to trace configuration '$item'");
             }
         } elsif (ref($item) eq 'HASH') {
             # An actual configuration, used when resolving fatarches.
@@ -377,7 +514,7 @@ sub _closure ($$) {
     # references to fat architectures are linked into the config.
     # This deferred linkage makes avoiding recursion simpler (possible).
     #
-    while (my ($phat, $data) = each(%phat)) {
+    while (my ($fats, $data) = each(%fats)) {
         my $name = $data->{name};
         my $conf = $data->{conf};
         my $arch = $data->{arch};
@@ -385,7 +522,7 @@ sub _closure ($$) {
         if (ref($conf->{fatarch}) ne 'HASH') {
             $conf->{fatarch} = {};
         }
-        $conf->{fatarch}->{$name} = $arch;
+        $conf->{fatarch}{$name} = $arch;
     }
 
     #
@@ -404,43 +541,27 @@ sub _closure ($$) {
     # fetching a value stored as CODE will call that code and provide
     # it the builder's context).
     #
-    my @pass_errs = @errs;
-    my @pass_warn = @warn;
-    my $pass_conf = Grace::ActiveConfig::activate(\%keep);
+    $self->{_data_} = _collate();
 
     # Clear these so the values don't persist.
-    @errs = ();
-    @warn = ();
     %done = ();
     %keep = ();
     %fail = ();
     %loop = ();
-    %phat = ();
+    %fats = ();
     %list = ();
     @path = ();
-
-    return ($pass_conf, \@pass_errs, \@pass_warn);
-}
-
-sub new {
-    my ($what, $bldr, @file) = @_;
-
-    my $self = $what->SUPER::new($bldr, @file);
-
-    my ($data, $errs, $warn) = _closure($bldr, $self->{_data_});
-
-    $bldr->warning(@{$warn});
-    $bldr->error(@{$errs});
-
-    if (! @{$errs}) {
-        $self->{_data_} = $data;
-    }
 
     return $self;
 }
 
+sub new {
+    my ($what, $attr, @files) = @_;
+    return _compile($what->SUPER::new($attr, @files));
+}
+
 sub system {
-    return $_[0]->{_data_}->{$_[1]};
+    return $_[0]->{_data_}{$_[1]};
 }
 
 sub default {

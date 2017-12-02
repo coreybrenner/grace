@@ -1,24 +1,41 @@
 package Grace::Builder;
 
-use parent 'Grace::Object';
+use strict;
+use warnings;
+
+use parent 'Grace::Overlay';
 
 use Scalar::Util qw{weaken};
 
 use Grace::Config;
 
 sub new {
-    my $what = shift;
-
-    my $type = (ref($what) || $what);
-    my $prnt = (ref($what) && $what);
+    my ($what, %attr) = @_;
     
-    my $self = $type->SUPER::new();
+    my $self = $what->SUPER::new(%attr);
+    my $prnt = (ref($what) && $what);
+
+    if ($self->{_prnt_} = $prnt) {
+        weaken($self->{_prnt_});
+        $prnt->{_kids_}->{$self->object_name()} = $self;
+    }
+
+    if (! $self->{_bldr_}) {
+        $self->{_bldr_} = $self;
+        weaken($self->{_bldr_});
+    }
+
+    $self->{_attr_} = {
+        %{ ($prnt ? $prnt->{_attr_} : { }) },
+        %attr,
+    };
 
     $self->{_tgts_} = [];
-    $self->{_bldr_} = ($prnt ? $prnt->builder() : $self);
 
-    weaken($self->{_bldr_});
+    return $self;
 }
+
+our $generic = __PACKAGE__->new();
 
 sub setenv {
     my $what = shift;
@@ -73,6 +90,9 @@ sub target {
             $targ{$what} = $what;
         }
     }
+}
+
+sub get {
 }
 
 1;
