@@ -568,7 +568,7 @@ sub _opt_vars ($$$$$) {
 }
 
 #
-# resolve_verbose():
+# _resolve_verbose():
 #
 # Distribute verbosity settings to build configurations.  This is called
 # right after command options are read and distributed.  This begins the
@@ -587,7 +587,7 @@ sub _opt_vars ($$$$$) {
 # # named configs inherit global config.
 # --verbose=foo --verbose cfg::bar=3  --> cfg::foo=1, cfg::bar=3
 #
-sub resolve_verbose () {
+sub _resolve_verbose () {
     my (%cfg, $cfg, @sub, $sub, $lev);
 
     # --verbose=? --> --verbose foo=1
@@ -669,7 +669,7 @@ sub _resolve_cmdflg (%) {
     }
 }
 
-sub resolve_boolean () {
+sub _resolve_boolean () {
     _resolve_cmdflg(
         key => 'empty-environ',
         var => 'nullenv',
@@ -717,7 +717,7 @@ sub resolve_boolean () {
     );
 }
 
-sub resolve_environ () {
+sub _resolve_environ () {
     # Start out with an empty environment.  If someone hasn't said
     # "start all builds with an empty environment" (--empty-environ),
     # take a snapshot of the environment we were given.
@@ -757,7 +757,7 @@ sub resolve_environ () {
 }
 
 #
-# resolve_srcroot():
+# _resolve_srcroot():
 #
 # Determine whether a build should look for sources in a different directory
 # than the one which would otherwise be automatically determined, based upon
@@ -772,7 +772,7 @@ sub resolve_environ () {
 #       --> All named configs which do not have their own srcroot settings
 #           inherit the global settings.
 #
-sub resolve_srcroot () {
+sub _resolve_srcroot () {
     my (%dir, @dir, $dir);
     my (@top, $top, $cfg);
     my (%fil, $fil);
@@ -868,7 +868,7 @@ sub resolve_srcroot () {
 }
 
 #
-# resolve_relpath():
+# _resolve_relpath():
 #
 # Determine whether a relative path within a source tree was specified or,
 # if a build is started from within a source tree, at what relative path
@@ -880,7 +880,7 @@ sub resolve_srcroot () {
 # --relpath foo/bar
 # --relpath cfg=foo/baz,oof/zab
 #
-sub resolve_relpath () {
+sub _resolve_relpath () {
     my (@rel, $rel);
     my (@dir, $dir);
     my (%top, $top);
@@ -996,15 +996,15 @@ sub _resolve_outdir ($$) {
     }
 }
 
-sub resolve_outroot () {
+sub _resolve_outroot () {
     _resolve_outdir('outroot', 1);
 }
 
-sub resolve_pubroot () {
+sub _resolve_pubroot () {
     _resolve_outdir('pubroot', 0);
 }
 
-sub resolve_include () {
+sub _resolve_include () {
     # --include dir...
     my (@inc, $inc, @raw, $raw, $cfg, @sub);
 
@@ -1051,7 +1051,7 @@ sub resolve_include () {
     }
 }
 
-sub resolve_overlay () {
+sub _resolve_overlay () {
     my ($cfg, $ovl, @ovl);
 
     @ovl = @{ ($options{''}{overlay} || []) };
@@ -1068,7 +1068,7 @@ sub resolve_overlay () {
     }
 }
 
-sub resolve_setvars () {
+sub _resolve_setvars () {
     my %var = %{ $options{''}{setvar} || {} };
     my $cfg;
 
@@ -1082,7 +1082,7 @@ sub resolve_setvars () {
     }
 }
 
-sub resolve_targets () {
+sub _resolve_targets () {
     my (@tgt, $tgt, $cfg);
 
     if (defined($tgt = $options{''}{target})) {
@@ -1100,7 +1100,7 @@ sub resolve_targets () {
     }
 }
 
-sub resolve_lookups () {
+sub _resolve_lookups () {
     my %alias;
     my %group;
     my %order;
@@ -1158,7 +1158,7 @@ sub resolve_lookups () {
     }
 }
 
-sub resolve_variant () {
+sub _resolve_variant () {
     my (%cfg, $cfg);
     my (%dim, $dim);
     my (@var, $var);
@@ -1218,7 +1218,7 @@ sub resolve_variant () {
     }
 }
 
-sub resolve_systems () {
+sub _resolve_systems () {
     my (%cfg, $cfg);
     my (%sys, $sys);
     my ($top, @def, $tbl, $sub);
@@ -1252,7 +1252,7 @@ sub resolve_systems () {
     }
 }
 
-sub resolve_subarch () {
+sub _resolve_subarch () {
     my (%cfg, $cfg, @sub, $sub, $sys);
 
     # --subarch=foo --> --subarch foo=1
@@ -1302,7 +1302,7 @@ sub resolve_subarch () {
 }
 
 # --toolset=set --toolset cfg/set --toolset sys=set --toolset cfg/sys=set
-sub resolve_toolset () {
+sub _resolve_toolset () {
     # --toolset vs2015
     # --toolset linux_x86-32=gcc6
     # --toolset thistree::java-1.7 --toolset thattree::java-1.9
@@ -1437,7 +1437,7 @@ sub _resolve_config (%) {
     }
 }
 
-sub resolve_systems_config () {
+sub _resolve_systems_config () {
     _resolve_config (
         dfl => $systems_config,
         key => 'systems-config',
@@ -1446,7 +1446,7 @@ sub resolve_systems_config () {
     );
 }
 
-sub resolve_toolset_config () {
+sub _resolve_toolset_config () {
     _resolve_config (
         dfl => $toolset_config,
         key => 'toolset-config',
@@ -1455,7 +1455,7 @@ sub resolve_toolset_config () {
     );
 }
 
-sub resolve_environ_config () {
+sub _resolve_environ_config () {
     _resolve_config (
         dfl => $environ_config,
         key => 'environ-config',
@@ -1464,7 +1464,7 @@ sub resolve_environ_config () {
     );
 }
 
-sub resolve_variant_config () {
+sub _resolve_variant_config () {
     _resolve_config (
         dfl => $variant_config,
         key => 'variant-config',
@@ -1473,7 +1473,7 @@ sub resolve_variant_config () {
     );
 }
 
-sub parse_options (@) {
+sub _parse_options (@) {
     my ($unknown, $untaken, $errlist) = Grace::Options::parse(\@options, @_);
 
     push(@errlist, @{$errlist});
@@ -1507,26 +1507,26 @@ sub parse_options (@) {
         }
     }
 
-    resolve_verbose(); # This goes first, so other resolvers can _debug().
-    resolve_boolean();
-    resolve_environ(); # Must be after resolve_boolean().
-    resolve_srcroot();
-    resolve_relpath();
-    resolve_outroot();
-    resolve_pubroot();
-    resolve_include();
-    resolve_overlay();
-    resolve_setvars();
-    resolve_targets();
-    resolve_lookups();
-    resolve_variant();
-    resolve_systems();
-    resolve_subarch();
-    resolve_toolset();
-    resolve_environ_config();
-    resolve_systems_config();
-#    resolve_toolset_config();
-#    resolve_variant_config();
+    _resolve_verbose(); # This goes first, so other resolvers can _debug().
+    _resolve_boolean();
+    _resolve_environ(); # Must be after resolve_boolean().
+    _resolve_srcroot();
+    _resolve_relpath();
+    _resolve_outroot();
+    _resolve_pubroot();
+    _resolve_include();
+    _resolve_overlay();
+    _resolve_setvars();
+    _resolve_targets();
+    _resolve_lookups();
+    _resolve_variant();
+    _resolve_systems();
+    _resolve_subarch();
+    _resolve_toolset();
+    _resolve_environ_config();
+    _resolve_systems_config();
+#    _resolve_variant_config();
+#    _resolve_toolset_config();
 
     my $ostream = STDOUT;
 
@@ -1555,7 +1555,7 @@ sub parse_options (@) {
     }
 }
 
-sub create_builders () {
+sub _create_builders () {
     my (%cfg, @cfg, $cfg, $dir, %bld);
 
     # If there are named configs, configure those.
@@ -1566,32 +1566,30 @@ sub create_builders () {
 
     foreach $cfg (@cfg) {
         foreach $dir (@{$configs{$cfg}{srcroot}}) {
-            %cfg = (
+            $bld{$cfg}{$dir} = Grace::Builder::Grace->new(
                 %{$configs{$cfg}},
                 cfgname => $cfg,
                 srcroot => $dir,
                 relpath => $configs{$cfg}{relpath}{$dir},
                 outroot => $configs{$cfg}{outroot}{$dir},
                 pubroot => $configs{$cfg}{pubroot}{$dir},
-                systems_config_file =>
-                    $configs{$cfg}{systems_config_file}{$dir},
-                toolset_config_file =>
-                    $configs{$cfg}{toolset_config_file}{$dir},
                 environ_config_file =>
                     $configs{$cfg}{environ_config_file}{$dir},
+                systems_config_file =>
+                    $configs{$cfg}{systems_config_file}{$dir},
                 variant_config_file =>
                     $configs{$cfg}{variant_config_file}{$dir},
+                toolset_config_file =>
+                    $configs{$cfg}{toolset_config_file}{$dir},
             );
-
-            $bld{$cfg}{$dir} = Grace::Builder::Grace->new(%cfg);
         }
     }
 
     return %bld;
 }
 
-parse_options(@ARGV);
-create_builders();
+_parse_options(@ARGV);
+_create_builders();
 
 __DATA__
 if (create_builders()) {
