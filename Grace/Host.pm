@@ -16,8 +16,6 @@ my ($_sysname, $_sysarch) = (uname())[0, 4];
 
 $_sysname = lc($_sysname);
 $_sysarch = lc($_sysarch);
-print(STDERR __PACKAGE__." -- SYSNAME: $_sysname\n");
-print(STDERR __PACKAGE__." -- SYSARCH: $_sysarch\n");
 
 if ($_sysname =~ m{^(?:mswin32|cygwin)$}o) {
     $_sysname = 'windows';
@@ -41,7 +39,6 @@ our $_hostsys = Grace::Platform->new(
     sysarch => $_sysarch,
     systype => $_systype,
 );
-print(STDERR __PACKAGE__.": _hostsys: ".Dumper($_hostsys));
 
 sub platform () {
     return $_hostsys;
