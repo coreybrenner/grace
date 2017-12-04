@@ -135,8 +135,6 @@ sub new {
     }
 
     if (@file) {
-        local %ENV = $self->builder()->getenv();
-
         sub BUILDER () {
             $self->builder()
         };

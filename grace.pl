@@ -1523,9 +1523,9 @@ sub parse_options (@) {
     resolve_systems();
     resolve_subarch();
     resolve_toolset();
+    resolve_environ_config();
     resolve_systems_config();
 #    resolve_toolset_config();
-#    resolve_environ_config();
 #    resolve_variant_config();
 
     my $ostream = STDOUT;

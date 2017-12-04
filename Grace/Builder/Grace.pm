@@ -6,6 +6,11 @@ use warnings;
 use parent 'Grace::Builder';
 
 use Data::Dumper;
+$Data::Dumper::Indent = 1;
+$Data::Dumper::Purity = 1;
+$Data::Dumper::Trailingcomma = 1;
+$Data::Dumper::Sortkeys = 1;
+
 
 use Grace::Host;
 use Grace::Config::Environ;
@@ -45,15 +50,34 @@ sub setenv {
 sub new {
     my ($what, %attr) = @_;
 
+    my $type = (ref($what) || $what);
+    my $prnt = (ref($what) && $what);
 print(STDERR __PACKAGE__."->new(): WHAT: '$what', ATTR: ".Dumper(\%attr));
-    my $self = $what->SUPER::new(%attr);
+
+    our $self = $type->SUPER::new(%attr);
     if (! $self) {
 print(STDERR __PACKAGE__."->new(): Parent constructor failed; return undef\n");
         return undef;
     }
 
-#    _environ_config($self, @{$self->{_attr_}->{environ_config_file}});
-#print(STDERR __PACKAGE__."->new($what, ...): ENV: ".Dumper($self->{_attr_}->{environ}));
+    #
+    # Apply environ files to current builder's environment.  Catch
+    # changes made to %ENV, too, and make them local to the current
+    # builder;  No configuration shall muck about with the global
+    # environment affecting other configurations.
+    #
+    local %ENV = %{$self->{_attr_}{environ}};
+    $self->{_attr_}{environ} = \%ENV;
+
+    # Allow for BUILDER->setenv(...)
+    sub BUILDER () {
+        return $self;
+    }
+
+    my $list = $self->{_attr_}{environ_config_file};
+    my @list = ((ref($list) eq 'ARRAY') ? @{$list} : ( $list ));
+    # Apply file list.
+    map { do $_ } @list;
 
     my $dict = Grace::Config::Platform->new(
         builder => $self,
@@ -63,7 +87,6 @@ print(STDERR __PACKAGE__."->new(): Parent constructor failed; return undef\n");
         },
         fileset => $self->{_attr_}{systems_config_file},
     );
-print(STDERR __PACKAGE__."->new(): DICT: ".Dumper($dict));
 
     if ($dict && ! $dict->errors()) {
         $self->{_attr}{systems_config_dict} = $dict;
@@ -83,6 +106,7 @@ print(STDERR __PACKAGE__."->new(): DICT: ".Dumper($dict));
 #    _variant_config($self, @{$self->{_attr_}->{variant_config_file}});
 #    _toolset_config($self, @{$self->{_attr_}->{toolset_config_file}});
 
+print(STDERR __PACKAGE__."->new: RETURN: ".Dumper($self));
     return $self;
 }
 
@@ -127,3 +151,4 @@ print(STDERR __PACKAGE__."->new(): DICT: ".Dumper($dict));
 #                variant_config_file =>
 #                    $configs{$cfg}{variant_config_file}{$dir},
 #            );
+
