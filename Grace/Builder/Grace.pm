@@ -5,8 +5,9 @@ use warnings;
 
 use parent 'Grace::Builder';
 
-use Clone qw{clone};
+use Data::Dumper;
 
+use Grace::Host;
 use Grace::Config::Environ;
 use Grace::Config::Platform;
 
@@ -44,21 +45,40 @@ sub setenv {
 sub new {
     my ($what, %attr) = @_;
 
+print(STDERR __PACKAGE__."->new(): WHAT: '$what', ATTR: ".Dumper(\%attr));
     my $self = $what->SUPER::new(%attr);
+    if (! $self) {
+print(STDERR __PACKAGE__."->new(): Parent constructor failed; return undef\n");
+        return undef;
+    }
 
 #    _environ_config($self, @{$self->{_attr_}->{environ_config_file}});
 #print(STDERR __PACKAGE__."->new($what, ...): ENV: ".Dumper($self->{_attr_}->{environ}));
 
     my $dict = Grace::Config::Platform->new(
-        { builder => $self }, @{$self->{_attr_}{systems_config_file}}
+        builder => $self,
+        systems => {
+            native  => Grace::Host->platform(),
+            default => 'native',
+        },
+        fileset => $self->{_attr_}{systems_config_file},
     );
-    if (! $dict || $dict->errors()) {
-        $self->error(
-            "System configuration files:",
-            map { "    '$_'" } @{$self->{_attr_}{systems_config_file}}
-        );
+print(STDERR __PACKAGE__."->new(): DICT: ".Dumper($dict));
+
+    if ($dict && ! $dict->errors()) {
+        $self->{_attr}{systems_config_dict} = $dict;
+    } else {
+        if (@{$self->{_attr_}{systems_config_file}}) {
+            $self->error(
+                "System configuration files:",
+                map { "    '$_'" } @{$self->{_attr_}{systems_config_file}}
+            );
+        } else {
+            $self->error(
+                "Default host platform configuration " . Grace::Host->sysconf()
+            );
+        }
     }
-    $self->{_attr_}{systems_config_dict} = $dict;
 
 #    _variant_config($self, @{$self->{_attr_}->{variant_config_file}});
 #    _toolset_config($self, @{$self->{_attr_}->{toolset_config_file}});

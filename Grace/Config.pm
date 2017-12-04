@@ -110,23 +110,31 @@ sub merge_file (@) {
 }
 
 sub new {
-    my  $what = shift;
-
-    my  $attr = ((ref($_[0]) eq 'HASH') ? shift : {});
-    my  @file = @_;
+    my ($what, %attr) = @_;
 
     my  $type = (ref($what) || $what);
     my  $prnt = (ref($what) && $what);
-    our $self = $type->SUPER::new(%{$attr});
     my  $fail = 0;
+    our $self;
 
-    if ($prnt) {
-        unshift(@file, $prnt->files());
+    if (! ($self = $type->SUPER::new(%attr))) {
+        return undef;
     }
 
-    my ($data, $errs);
+    my ($data, $errs) = (undef, []);
 
-    { # local scope.
+    my @file = (
+        $attr{fileset}
+          ? ((ref($attr{fileset}) eq 'ARRAY')
+             ? @{$attr{fileset}}
+             : ( $attr{fileset} ))
+          : ()
+    );
+    if ($prnt) {
+        unshift(@file, $prnt->fileset());
+    }
+
+    if (@file) {
         local %ENV = $self->builder()->getenv();
 
         sub BUILDER () {
@@ -138,11 +146,11 @@ sub new {
 
     if (! @{$errs}) {
         $self->{_data_} = merge_data(@{$data});
+        return $self;
+    } else {
+        $self->error(@{$errs});
+        return undef;
     }
-
-    $self->error(@{$errs});
-
-    return $self;
 }
 
 sub files ($) {

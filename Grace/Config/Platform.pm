@@ -9,15 +9,14 @@ use Grace::Utility       qw{unique};
 use Grace::ActiveConfig;
 use Grace::Platform;
 
-use Data::Dumper;
+#use Data::Dumper;
+#$Data::Dumper::Indent = 1;
+#$Data::Dumper::Purity = 1;
+#$Data::Dumper::Trailingcomma = 1;
+#$Data::Dumper::Sortkeys = 1;
 
-$Data::Dumper::Indent = 1;
-$Data::Dumper::Purity = 1;
-$Data::Dumper::Trailingcomma = 1;
-$Data::Dumper::Sortkeys = 1;
-
-sub _compile ($) {
-    our $self = shift;
+sub _compile ($$) {
+    our ($seed, $self) = @_;
     our $from = $self->{_data_};
 
     our @work = ();
@@ -28,11 +27,12 @@ sub _compile ($) {
     our %fats = ();
     our %list = ();
     our @path = ();
+    our %seed = ();
 
     # Inject an error into the configuration.
     sub _error (@) {
         my $head = (@path ? "Config '" . join('->', @path) . "': " : '');
-        $self->error(map { "$head$_" } @_);
+        $self->error(map { print(STDERR "_ERROR: $head$_\n"); "$head$_" } @_);
         return 1;
     }
 
@@ -407,7 +407,10 @@ sub _compile ($) {
             # Skip array refs, fatarch containers, and already-done hashes.
             next if (ref($conf) ne 'HASH');
             next if ($conf->{fatarch});
-            next if ($conf{$conf});
+            if ($conf{$conf}) {
+                $name{$name} = $conf{$conf};
+                next;
+            }
 
             # Create a Platform.
             if (my $plat = Grace::Platform->new(%{$conf}, builder => $bldr)) {
@@ -481,6 +484,76 @@ sub _compile ($) {
         return \%name;
     }
 
+    sub _seed ($$);
+    sub _seed ($$) {
+        my ($path, $name) = @_;
+        my $down = (($path ? "$path\->" : '') . $name);
+        my @rslt;
+        if ($loop{$name}) {
+            _error(($path ? "Seed path '$path': " : '')
+                 . "Config '$name' is config-looped");
+            return ();
+        }
+        if (! $seed->{$name}) {
+            _error(($path ? "Seed path '$path': " : '')
+                 . "Config '$name' not seeded");
+            return ();
+        } elsif (! ref($seed->{$name})) {
+            if (! $seed{$name}) {
+                $loop{$name} = 1;
+                @rslt = _seed($down, $seed->{$name});
+                if (@rslt == 1) {
+                    $seed{$name} = $rslt[0];
+                } elsif (@rslt) {
+                    $seed{$name} = \@rslt;
+                }
+                $loop{$name} = 0;
+            }
+        } elsif (ref($seed->{$name}) eq 'Grace::Platform') {
+            return ( $seed{$name} = $seed->{$name} );
+        } elsif (ref($seed->{$name}) eq 'ARRAY') {
+            my @list = @{$seed->{$name}};
+            $loop{$name} = 1;
+            for (my $indx = 0; $indx < @list; ) {
+                if (! ref($list[$indx])) {
+                    push(@rslt, _seed("$down\[$indx]", $list[$indx]));
+                } elsif (ref($list[$indx]) eq 'Grace::Platform') {
+                    push(@rslt, $list[$indx]);
+                } elsif (ref($list[$indx]) eq 'ARRAY') {
+                    splice(@list, $indx, 1, @{$list[$indx]});
+                    next;
+                } else {
+                    _error(($path ? "Seed path '$path': " : '')
+                         . "Config '$down\[$indx]': Unknown type "
+                         . ref($list[$indx]));
+                }
+                ++$indx;
+            }
+            $loop{$name} = 0;
+        } else {
+            _error(($path ? "Seed path '$path': " : '')
+                 . "Config $down: Unknown type "
+                 . ref($seed->{$name}));
+        }
+        return unique(@rslt);
+    }
+
+    #
+    # Begin by building a hash of names referencing Grace::Platform(s).
+    # Each name may reference a single instance or a list of instances.
+    # This establishes a table used primarily to set up default and
+    # native target platforms for a Grace::Builder.  Any config files
+    # parsed in the constructor and "compiled" into Grace::Platform
+    # instances here, will be merged into the table linked up here, and
+    # will be returned as the platform configuration dictionary for a
+    # builder.  This allows config files to override the settings given
+    # in the builder's native seed platform description.  This loop
+    # resolves names in $seed and begins populating %keep.
+    #
+    foreach (keys(%{$seed || {}})) {
+        _seed('', $_);
+    }
+
     #
     # Start with the set of system names in the configuration, and
     # run until the work queue is empty.  The subroutines in this
@@ -541,7 +614,7 @@ sub _compile ($) {
     # fetching a value stored as CODE will call that code and provide
     # it the builder's context).
     #
-    $self->{_data_} = _collate();
+    $self->{_data_} = { %seed, %{ _collate() } };
 
     # Clear these so the values don't persist.
     %done = ();
@@ -552,12 +625,22 @@ sub _compile ($) {
     %list = ();
     @path = ();
 
-    return $self;
+    return ($self->errors() == 0);
 }
 
 sub new {
-    my ($what, $attr, @files) = @_;
-    return _compile($what->SUPER::new($attr, @files));
+    my ($what, %attr) = @_;
+
+    my $self = $what->SUPER::new(%attr);
+    if (! $self) {
+        return undef;
+    }
+
+    if (! _compile($attr{systems}, $self)) {
+        return undef;
+    }
+
+    return $self;
 }
 
 sub system {

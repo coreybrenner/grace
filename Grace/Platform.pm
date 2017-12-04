@@ -5,6 +5,8 @@ use warnings;
 
 use parent 'Grace::Object';
 
+use Data::Dumper;
+
 use POSIX qw{uname};
 use Carp;
 
@@ -34,7 +36,7 @@ sub split {
 sub is_x86 {
     my $what = shift;
     my $self = (ref($what) && $what);
-    my $conf = ($self ? $self->sysarch() : shift);
+    my $conf = ($self ? $self->sysarch() : $what);
 
     return ($conf =~ m{^$_match_x86_regex$}o);
 }
@@ -45,7 +47,7 @@ sub is_x86 {
 sub is_x64 {
     my $what = shift;
     my $self = (ref($what) && $what);
-    my $conf = ($self ? $self->sysarch() : shift);
+    my $conf = ($self ? $self->sysarch() : $what);
 
     return ($conf =~ m{^$_match_x64_regex$}o);
 }
@@ -121,45 +123,6 @@ sub new {
     }
 
     return ($fail ? undef : $self);
-}
-
-my ($_sysname, $_sysarch, $_systype) = (uname())[0, 4];
-
-$_sysname = lc($_sysname);
-$_sysarch = lc($_sysarch);
-$_systype = 'unix'; # Default.
-
-if ($_sysname =~ m{^(?:mswin32|cygwin)$}o) {
-    $_sysname = 'windows';
-    $_systype = 'windows';
-} elsif ($_sysname =~ m{^(?:darwin|mac.*|osx)$}o) {
-    $_sysname = 'darwin';
-} else {
-    carp(__PACKAGE__ . ": Unknown host sysname: '$_sysname'");
-}
-
-if (__PACKAGE__->is_x86($_sysarch)) {
-    $_sysarch = 'x86_32';
-} elsif (__PACKAGE__->is_x64($_sysarch)) {
-    $_sysarch = 'x86_64';
-} else {
-    carp(__PACKAGE__ . ": Unknown host sysarch: '$_sysarch'");
-}
-
-our $_host_platform = __PACKAGE__->new(
-    systype => $_systype,
-    sysname => $_sysname,
-    sysarch => $_sysarch,
-);
-
-#
-# Usage:
-#
-#   $foo->host()
-#       return host platform skeleton configuration.
-#
-sub host {
-    return $_host_platform;
 }
 
 #
